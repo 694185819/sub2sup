@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -22,7 +23,7 @@ except Exception:  # noqa: BLE001 - optional dependency
     DND_FILES = 'DND_Files'
     HAS_DND = False
 
-from . import __version__, i18n, pgs, render, vobsub
+from . import __version__, i18n, pgs, render, updater, vobsub
 from .icon_data import ICON_PNG_B64
 
 T = i18n.T
@@ -141,10 +142,13 @@ class App:
         self._preview_token = 0
         self._busy = False
         self._load_gen = 0
+        self.update_info = None
+        self._update_check_running = False
         self._build_style()
         self._build_ui()
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
         self.root.after(50, self._poll_load)
+        self.root.after(2500, self._auto_check_updates)
 
     def _setup_dnd(self) -> None:
         """Register every main-window widget as a file drop target."""
@@ -252,6 +256,7 @@ class App:
         menubar.add_cascade(label=T('视图'), menu=m_view)
 
         m_help = tk.Menu(menubar, tearoff=0)
+        m_help.add_command(label=T('检查更新…'), command=self.check_updates)
         m_help.add_command(label=T('使用说明'), command=lambda: self._open_help())
         m_help.add_command(label=T('关于'), command=self._about)
         menubar.add_cascade(label=T('帮助'), menu=m_help)
@@ -288,6 +293,7 @@ class App:
         self.btn_jump = ttk.Button(bar, text='跳转时间…', command=self.jump_time,
                                    state='disabled')
         self.btn_jump.pack(side='left')
+        self.btn_update = ttk.Button(bar, text='', command=self._open_update_dialog)
         ttk.Separator(bar, orient='vertical').pack(side='left', fill='y', padx=12)
         self.lang_label = ttk.Label(bar, text='语言：')
         self.lang_label.pack(side='left')
@@ -402,6 +408,7 @@ class App:
             pass
 
         self._setup_dnd()
+        self._refresh_update_banner()
 
     # ------------------------------------------------------------- i18n
     def _update_title(self) -> None:
@@ -1357,6 +1364,212 @@ class App:
             i18n.about_text(__version__),
             parent=self.root)
 
+    # ------------------------------------------------------------- updates
+    def _local_version(self) -> str:
+        return os.environ.get('SUB2SUP_FAKE_VERSION') or __version__
+
+    def _refresh_update_banner(self) -> None:
+        btn = getattr(self, 'btn_update', None)
+        if btn is None:
+            return
+        if self.update_info is not None:
+            btn.configure(text=T('发现新版本 {tag}，点击更新').format(
+                tag=self.update_info.version_text))
+            if not btn.winfo_ismapped():
+                btn.pack(side='right', padx=(0, 10))
+        else:
+            btn.pack_forget()
+
+    def _auto_check_updates(self) -> None:
+        if not updater.should_auto_check():
+            return
+        self._start_update_check(False)
+
+    def check_updates(self) -> None:
+        self._start_update_check(True)
+
+    def _start_update_check(self, manual: bool) -> None:
+        if self._update_check_running:
+            return
+        self._update_check_running = True
+        local = self._local_version()
+
+        def work() -> None:
+            info = None
+            err = None
+            try:
+                info = updater.check_latest(local)
+            except Exception as exc:  # noqa: BLE001
+                err = exc
+            self.root.after(0, lambda: self._update_checked(info, err, manual))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_checked(self, info, err, manual: bool) -> None:
+        self._update_check_running = False
+        updater.mark_checked()
+        if err is not None:
+            if manual:
+                messagebox.showerror(T('检查更新'),
+                                     T('检查更新失败：{error}').format(error=err),
+                                     parent=self.root)
+            return
+        if info is not None:
+            self.update_info = info
+            self._refresh_update_banner()
+            if manual:
+                self._open_update_dialog()
+        elif manual:
+            messagebox.showinfo(T('检查更新'),
+                                T('已是最新版本 v{version}').format(
+                                    version=self._local_version()),
+                                parent=self.root)
+
+    def _open_update_dialog(self) -> None:
+        info = self.update_info
+        if info is None:
+            self.check_updates()
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title(T('软件更新'))
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.configure(bg=BG)
+        dlg.geometry('720x560')
+        dlg.minsize(620, 480)
+        ttk.Label(dlg, text=T('当前版本：v{current}').format(current=self._local_version()),
+                  style='Info.TLabel').pack(anchor='w', padx=18, pady=(16, 2))
+        ttk.Label(dlg, text=T('最新版本：v{latest}').format(latest=info.version_text),
+                  style='Info.TLabel').pack(anchor='w', padx=18)
+        ttk.Label(dlg, text=T('更新说明'), style='Info.TLabel').pack(
+            anchor='w', padx=18, pady=(12, 4))
+        frame = ttk.Frame(dlg)
+        frame.pack(fill='both', expand=True, padx=18)
+        txt = tk.Text(frame, wrap='word', font=FONT, height=12, background='#ffffff',
+                      borderwidth=1, relief='solid')
+        sb = ttk.Scrollbar(frame, orient='vertical', command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        txt.pack(side='left', fill='both', expand=True)
+        sb.pack(side='right', fill='y')
+        txt.insert('1.0', info.body or T('（该 Release 没有更新说明，请打开 Release 页面查看。）'))
+        txt.configure(state='disabled')
+
+        state = {'cancel': threading.Event(), 'downloading': False, 'dest': None}
+        pb = ttk.Progressbar(dlg, mode='determinate', maximum=100, length=660)
+        status = ttk.Label(dlg, text='', style='Hint.TLabel')
+
+        btns = ttk.Frame(dlg, padding=(18, 10))
+        btns.pack(fill='x', side='bottom')
+        ttk.Button(btns, text=T('打开 Release 页面'),
+                   command=lambda: webbrowser.open(info.html_url)).pack(side='left')
+
+        def close() -> None:
+            state['cancel'].set()
+            dlg.destroy()
+
+        def open_folder() -> None:
+            dest = state.get('dest')
+            if dest:
+                os.startfile(str(Path(dest).parent))  # noqa: S606
+
+        def do_install() -> None:
+            dest = state.get('dest')
+            if not dest:
+                return
+            if not messagebox.askyesno(T('软件更新'),
+                                       T('安装程序将在本程序退出后替换并重启。是否继续？'),
+                                       parent=dlg):
+                return
+            if updater.install_and_restart(Path(dest), Path(sys.executable)):
+                dlg.destroy()
+                self.root.destroy()
+            else:
+                messagebox.showerror(
+                    T('软件更新'),
+                    T('无法自动安装：目标目录不可写。\n文件已下载到：\n{path}').format(path=dest),
+                    parent=dlg)
+
+        def set_downloaded(dest: Path) -> None:
+            state['dest'] = str(dest)
+            status.configure(text=f'{T("下载完成")}  {dest}')
+            dl_btn.configure(text=T('打开下载位置'), command=open_folder, state='normal')
+            if getattr(sys, 'frozen', False) and updater.can_install(Path(sys.executable)):
+                dl_btn.configure(text=T('立即安装并重启'), command=do_install)
+
+        def start_download() -> None:
+            if state['downloading'] or not info.asset_url:
+                return
+            state['downloading'] = True
+            state['cancel'].clear()
+            dl_btn.configure(state='disabled', text=T('下载中：{done} / {total} MB').format(
+                done='0', total='0'))
+            pb.pack(fill='x', padx=18, pady=(8, 0))
+            status.configure(text='')
+            pb['value'] = 0
+            q = queue.Queue()
+
+            def work() -> None:
+                try:
+                    dest = updater.download(
+                        info, progress=lambda d, t: q.put(('p', d, t)),
+                        cancel=state['cancel'].is_set)
+                    q.put(('done', dest))
+                except updater.DownloadCancelled:
+                    q.put(('cancel',))
+                except Exception as exc:  # noqa: BLE001
+                    q.put(('err', exc))
+
+            def poll() -> None:
+                try:
+                    while True:
+                        msg = q.get_nowait()
+                        if msg[0] == 'p':
+                            done, total = msg[1], msg[2]
+                            if total:
+                                pb['value'] = done * 100 / total
+                            mb_done = done / 1048576
+                            mb_total = f'{total / 1048576:.1f}' if total else '?'
+                            status.configure(text=T('下载中：{done} / {total} MB').format(
+                                done=f'{mb_done:.1f}', total=mb_total))
+                        elif msg[0] == 'done':
+                            state['downloading'] = False
+                            pb.pack_forget()
+                            set_downloaded(msg[1])
+                            return
+                        elif msg[0] == 'cancel':
+                            state['downloading'] = False
+                            pb.pack_forget()
+                            status.configure(text=T('已取消下载'))
+                            dl_btn.configure(text=T('下载并安装'), state='normal')
+                            return
+                        elif msg[0] == 'err':
+                            state['downloading'] = False
+                            pb.pack_forget()
+                            dl_btn.configure(text=T('下载并安装'), state='normal')
+                            messagebox.showerror(T('软件更新'),
+                                                 T('下载失败：{error}').format(error=msg[1]),
+                                                 parent=dlg)
+                            return
+                except queue.Empty:
+                    pass
+                try:
+                    if dlg.winfo_exists():
+                        dlg.after(80, poll)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=work, daemon=True).start()
+            dlg.after(80, poll)
+
+        dl_btn = ttk.Button(btns, text=T('下载并安装'), command=start_download)
+        dl_btn.pack(side='right')
+        if not info.asset_url:
+            dl_btn.configure(state='disabled')
+        ttk.Button(btns, text=T('取消'), command=close).pack(side='right', padx=(0, 8))
+        status.pack(anchor='w', padx=18, pady=(6, 0))
+        dlg.protocol('WM_DELETE_WINDOW', close)
+        self._localize(dlg)
+
     def _set_controls_enabled(self, enabled: bool) -> None:
         state = 'normal' if enabled else 'disabled'
         for w in (self.btn_del, self.btn_restore, self.btn_prev, self.btn_next,
@@ -1411,6 +1624,7 @@ def main() -> None:
 def smoke_test(path: str) -> int:
     """Headless-ish end-to-end check: load, export first N segments, verify."""
     os.environ['SUB2SUP_HEADLESS'] = '1'
+    os.environ['SUB2SUP_NO_UPDATE_CHECK'] = '1'
     _dpi_aware()
     root = _new_root()
     root.withdraw()

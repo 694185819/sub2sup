@@ -171,6 +171,31 @@ EN: dict[str, str] = {
     '校验问题：{issues}': 'Validation issues: {issues}',
     'UHD 帧率建议 23.976 / 24 / 25 / 50 / 59.94 / 60。':
         'UHD frame rates: 23.976 / 24 / 25 / 50 / 59.94 / 60.',
+    # updates
+    '检查更新…': 'Check for updates…',
+    '检查更新': 'Check for updates',
+    '发现新版本 {tag}，点击更新': 'New version {tag} available — click to update',
+    '已是最新版本 v{version}': 'You are up to date (v{version})',
+    '检查更新失败：{error}': 'Update check failed: {error}',
+    '软件更新': 'Software update',
+    '当前版本：v{current}': 'Current version: v{current}',
+    '最新版本：v{latest}': 'Latest version: v{latest}',
+    '更新说明': 'Release notes',
+    '（该 Release 没有更新说明，请打开 Release 页面查看。）':
+        '(No release notes in this release; open the release page for details.)',
+    '打开 Release 页面': 'Open release page',
+    '下载并安装': 'Download and install',
+    '下载中：{done} / {total} MB': 'Downloading: {done} / {total} MB',
+    '下载完成': 'Download complete',
+    '立即安装并重启': 'Install and restart',
+    '打开下载位置': 'Open download folder',
+    '下载失败：{error}': 'Download failed: {error}',
+    '无法自动安装：目标目录不可写。\\n文件已下载到：\\n{path}':
+        'Cannot install automatically: target folder is not writable.\\nDownloaded to:\\n{path}',
+    '安装程序将在本程序退出后替换并重启。是否继续？':
+        'The updater will replace this program after it exits and restart it. Continue?',
+    '已取消下载': 'Download cancelled',
+    '取消下载': 'Cancel download',
 }
 
 HELP_ZH = """字幕转 SUP 工具 使用说明
@@ -216,6 +241,14 @@ HELP_ZH = """字幕转 SUP 工具 使用说明
   * HDR 下 SDR 的白会偏亮，建议将字幕白压到 144 灰（Y≈140）；可在导出窗口选择亮度。
   * 帧率仅支持 23.976 / 24 / 25 / 50 / 59.94 / 60。
   * 「4K PGS」为试验性输出，部分播放器/封装工具可能不支持，需自行测试。
+
+八、检查更新
+  * 程序启动后会静默检查 GitHub 最新版本（每 24 小时最多一次）。
+  * 发现新版本时工具栏右侧会出现「发现新版本 vX，点击更新」；
+    也可以用「帮助 → 检查更新…」手动检查。
+  * 更新窗口可查看更新说明、打开 Release 页面，或直接「下载并安装」。
+  * exe 版下载完成后可「立即安装并重启」：程序退出后自动替换并启动新版；
+    源码运行时只下载并打开所在文件夹。
 """
 
 HELP_EN = """Sub2Sup — Help
@@ -275,6 +308,17 @@ HELP_EN = """Sub2Sup — Help
     (Y≈140); the brightness preset is available in the export dialog.
   * Frame rates: 23.976 / 24 / 25 / 50 / 59.94 / 60 only.
   * "4K PGS" is experimental; some players or muxers may not accept it.
+
+8. Checking for updates
+  * On startup the app quietly checks GitHub for a newer release (at most
+    once per 24 hours).
+  * When one exists, a "New version vX available" button appears in the
+    toolbar; you can also use Help -> Check for updates.
+  * The update dialog shows the release notes, can open the release page,
+    and can download and install the new build.
+  * In the exe build, "Install and restart" replaces the program after it
+    exits and launches the new one; when running from source it only
+    downloads the file and opens its folder.
 """
 
 ABOUT_ZH = (
