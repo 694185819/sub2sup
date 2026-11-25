@@ -3,8 +3,9 @@
 把 VobSub 图形字幕（`.idx + .sub` 配套，或单个 `.sub`）**无损**转换为蓝光 PGS 字幕（`.sup`），
 并支持在转换前**逐段预览、删除**不需要的字幕，例如字幕组信息、片头/片尾水印等。
 
-Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.1.0**。
+Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.1.1**。
 支持 Blu-ray 1080p SDR 与 UHD HDR 输出配置（1080p PGS + HDR 亮度预设，可选试验性 4K PGS）。
+支持把 `.idx` / `.sub` 文件直接拖进程序窗口，或拖到 exe 图标上打开。
 
 ## 界面截图
 
@@ -36,10 +37,11 @@ English UI:
 - 支持多语言轨 `.idx`；中文 / English 界面可实时切换
 - **UHD HDR 输出**：1080p PGS + HDR 字幕亮度预设（144 灰 / 自定义），
   可选试验性 4K PGS（2× 整数放大）
+- **拖拽打开**：把 `.idx` / `.sub` 拖进窗口，或拖到 exe 图标上
 
 ## 使用
 
-1. 双击 `Sub2Sup.exe`（或把 `.idx` 拖到 exe 上）。
+1. 双击 `Sub2Sup.exe`（或把 `.idx` / `.sub` 拖到 exe 上，或拖进已打开的窗口）。
 2. 「打开字幕文件…」选择 `.idx`，程序会自动找同名 `.sub`。
 3. 在左侧列表浏览段落；找字幕组信息时，可把「筛选」设为「仅顶部」或「仅整屏」。
 4. 选中要删除的段（可多选），点「删除所选」（或按空格/Delete/双击）。
@@ -94,7 +96,7 @@ UHD 原盘的实际做法通常是 **1920×1080 PGS 由播放器放大到 4K**�
 需要 Windows + Python 3.11+。
 
 ```bat
-py -3 -m pip install pyinstaller
+py -3 -m pip install pyinstaller tkinterdnd2
 build.bat
 ```
 

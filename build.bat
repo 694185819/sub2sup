@@ -1,5 +1,12 @@
 @echo off
 cd /d "%~dp0"
+py -3 -m pip install pyinstaller tkinterdnd2
+if errorlevel 1 (
+  echo.
+  echo pip install failed.
+  pause
+  exit /b 1
+)
 py -3 -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name Sub2Sup --icon assets\app.ico --paths src ^
   --distpath dist --workpath build app_main.py

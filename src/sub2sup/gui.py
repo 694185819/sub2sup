@@ -14,6 +14,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except Exception:  # noqa: BLE001 - optional dependency
+    TkinterDnD = None
+    DND_FILES = 'DND_Files'
+    HAS_DND = False
+
 from . import __version__, i18n, pgs, render, vobsub
 from .icon_data import ICON_PNG_B64
 
@@ -137,6 +145,49 @@ class App:
         self._build_ui()
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
         self.root.after(50, self._poll_load)
+
+    def _setup_dnd(self) -> None:
+        """Register every main-window widget as a file drop target."""
+        self._dnd_ok = False
+        if not hasattr(self.root, 'drop_target_register'):
+            return
+
+        def register(w) -> None:
+            try:
+                w.drop_target_register(DND_FILES)
+            except Exception:
+                pass
+            try:
+                w.dnd_bind('<<Drop>>', self._on_drop)
+            except Exception:
+                pass
+            for child in w.winfo_children():
+                if isinstance(child, (tk.Toplevel, tk.Menu)):
+                    continue
+                register(child)
+
+        register(self.root)
+        self._dnd_ok = True
+
+    def _on_drop(self, event):
+        action = getattr(event, 'action', 'copy')
+        try:
+            items = self.root.tk.splitlist(event.data)
+        except Exception:
+            items = [str(event.data)]
+        paths = []
+        for item in items:
+            p = Path(item)
+            if p.suffix.lower() in ('.idx', '.sub'):
+                paths.append(p)
+        if not paths:
+            messagebox.showwarning(T('拖入的文件不是字幕'),
+                                   T('请拖入 .idx 或 .sub 文件。'), parent=self.root)
+            return action
+        if self._busy:
+            return action
+        self.open_path(paths[0])
+        return action
 
     # ---------------------------------------------------------------- UI
     def _build_style(self) -> None:
@@ -295,7 +346,7 @@ class App:
         self.preview_frame.pack(fill='x', expand=False)
         self.preview_frame.pack_propagate(False)
         self.preview_label = tk.Label(self.preview_frame, bg=PREVIEW_BG,
-                                      text='打开字幕文件后在这里预览\n\n(黑底位置与原片一致)',
+                                      text='打开字幕文件后在这里预览\n\n(黑底位置与原片一致)\n\n也可以把 .idx / .sub 文件拖进窗口',
                                       fg='#dddddd', font=('Microsoft YaHei UI', 15))
         self.preview_label.pack(fill='both', expand=True)
         self.preview_frame.bind('<Configure>', self._on_preview_resize)
@@ -349,6 +400,8 @@ class App:
                 self.root.iconphoto(True, self._icon)
         except Exception:
             pass
+
+        self._setup_dnd()
 
     # ------------------------------------------------------------- i18n
     def _update_title(self) -> None:
@@ -473,7 +526,8 @@ class App:
                 self._render_preview(self.current_index)
         else:
             self.preview_label.configure(
-                text=T('打开字幕文件后在这里预览\n\n(黑底位置与原片一致)'), image='')
+                text=T('打开字幕文件后在这里预览\n\n(黑底位置与原片一致)\n\n也可以把 .idx / .sub 文件拖进窗口'),
+                image='')
         self._update_title()
 
     # ------------------------------------------------------------- opening
@@ -1323,6 +1377,15 @@ class App:
         self.root.destroy()
 
 
+def _new_root():
+    if HAS_DND:
+        try:
+            return TkinterDnD.Tk()
+        except Exception:  # noqa: BLE001 - fall back to plain Tk
+            pass
+    return tk.Tk()
+
+
 def main() -> None:
     _dpi_aware()
     args = sys.argv[1:]
@@ -1333,7 +1396,7 @@ def main() -> None:
             lang = args[i + 1]
         del args[i:i + 2]
     i18n.init_lang(lang)
-    root = tk.Tk()
+    root = _new_root()
     app = App(root)
     files = [a for a in args if not a.startswith('-')]
     for a in files:
@@ -1349,10 +1412,13 @@ def smoke_test(path: str) -> int:
     """Headless-ish end-to-end check: load, export first N segments, verify."""
     os.environ['SUB2SUP_HEADLESS'] = '1'
     _dpi_aware()
-    root = tk.Tk()
+    root = _new_root()
     root.withdraw()
     app = App(root)
-    app.open_path(Path(path))
+    class _DropEvent:
+        action = 'copy'
+        data = '{' + path + '}'
+    app._on_drop(_DropEvent())
     deadline = time.time() + 180
     while not app.loaded and time.time() < deadline:
         root.update()
@@ -1363,7 +1429,10 @@ def smoke_test(path: str) -> int:
     if not app.items:
         print('SMOKE FAIL: no items loaded')
         return 2
-    print(f'SMOKE: loaded {len(app.items)} items, canvas={app.canvas_size}')
+    if not (HAS_DND and getattr(app, '_dnd_ok', False)):
+        print('SMOKE FAIL: drag-and-drop not available')
+        return 3
+    print(f'SMOKE: loaded {len(app.items)} items via drop, canvas={app.canvas_size}')
     # delete first item then export a few
     app._set_removed([0], True)
     kept = [it.index for it in app.items if not it.removed][:6]

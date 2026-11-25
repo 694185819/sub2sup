@@ -63,6 +63,11 @@ EN: dict[str, str] = {
     # preview
     '打开字幕文件后在这里预览\n\n(黑底位置与原片一致)':
         'Open a subtitle file to preview\n\n(black frame matches the original subtitle position)',
+    '打开字幕文件后在这里预览\n\n(黑底位置与原片一致)\n\n也可以把 .idx / .sub 文件拖进窗口':
+        'Open a subtitle file to preview\n\n(black frame matches the original subtitle position)'
+        '\n\nYou can also drop a .idx / .sub file into this window',
+    '拖入的文件不是字幕': 'Not a subtitle file',
+    '请拖入 .idx 或 .sub 文件。': 'Please drop a .idx or .sub file.',
     '◀ 上一段': '◀ Previous',
     '下一段 ▶': 'Next ▶',
     '删除此段 (Space)': 'Remove this segment (Space)',
@@ -172,7 +177,7 @@ HELP_ZH = """字幕转 SUP 工具 使用说明
 
 一、打开字幕
   1. 点「打开字幕文件…」选择 .idx（程序会自动找同名 .sub）。
-  2. 也可以直接把 .idx / .sub 拖到 Sub2Sup.exe 上。
+  2. 也可以直接把 .idx / .sub 拖进程序窗口，或拖到 Sub2Sup.exe 图标上。
   3. 单独一个 .sub 也能打开（缺调色板信息，使用经典 VobSub 默认调色板）。
 
 二、预览与删除段落
@@ -185,8 +190,7 @@ HELP_ZH = """字幕转 SUP 工具 使用说明
     删除只是标记，不改原文件；可随时「恢复所选」「撤销」或「全部恢复」。
 
 三、导出 SUP
-  1. 点「导出为 SUP…」，确认输出文件名。
-  2. 画布尺寸：.idx 文件会自动使用其标注的尺寸；单独 .sub 需自行确认。
+  1. 点「导出为 SUP…」，确认输出文件名。  2. 画布尺寸：.idx 文件会自动使用其标注的尺寸；单独 .sub 需自行确认。
   3. 帧率代码默认 23.976（常见 Blu-ray 电影）；如原片是 24/25/29.97 等请选择对应值。
   4. 点「开始导出」。导出后程序会自动做结构自检。
   5. 得到的 .sup 可直接交给 tsMuxeR / mkvmerge 封装进原盘 ISO。
@@ -219,7 +223,8 @@ HELP_EN = """Sub2Sup — Help
 1. Opening a subtitle
   1. Click "Open subtitle file…" and choose the .idx file (the matching .sub is
      found automatically).
-  2. You can also drag a .idx / .sub file onto Sub2Sup.exe.
+  2. Alternatively, drag a .idx / .sub file into this window, or onto the
+     Sub2Sup.exe icon.
   3. A lone .sub can be opened too (it has no palette; the classic VobSub
      default palette is used).
 
