@@ -137,9 +137,35 @@ EN: dict[str, str] = {
     # misc
     '关闭': 'Close',
     # frame rate choices
-    '23.976 (Blu-ray 电影常见)': '23.976 (common for Blu-ray movies)',
+    '23.976 (Blu-ray)': '23.976 (Blu-ray)',
     '25 (PAL)': '25 (PAL)',
     '29.97 (NTSC)': '29.97 (NTSC)',
+    # UHD / HDR profile
+    '输出规格：': 'Output profile: ',
+    'Blu-ray 1080p (SDR)': 'Blu-ray 1080p (SDR)',
+    'UHD HDR (1080p PGS，推荐)': 'UHD HDR (1080p PGS, recommended)',
+    '4K PGS（试验性）': '4K PGS (experimental)',
+    'HDR 字幕亮度：': 'HDR subtitle brightness: ',
+    '保留原白 (Y=235)': 'Keep original white (Y=235)',
+    'UHD 灰 144 (Y≈140，推荐)': 'UHD grey 144 (Y≈140, recommended)',
+    '灰 160 (Y≈153)': 'Grey 160 (Y≈153)',
+    '灰 180 (Y≈171)': 'Grey 180 (Y≈171)',
+    '自定义 Y：': 'Custom Y: ',
+    '自定义 Y': 'Custom Y',
+    'UHD 推荐：保持 1920×1080 PGS（播放器放大到 4K），HDR 下降低字幕白亮度。':
+        'UHD recommended: keep 1920×1080 PGS (the player upscales to 4K) and lower '
+        'the subtitle white level for HDR.',
+    '4K PGS 为试验性输出：部分播放器/封装工具可能不支持。':
+        '4K PGS is experimental: some players and muxers may not support it.',
+    '画布将由播放器放大到 4K；字幕亮度已按 HDR 预设调整。':
+        'The player will upscale the 1080p graphics to 4K; the palette luma follows the HDR preset.',
+    '当前源画布 {sw}×{sh}，目标 {tw}×{th}，缩放 {sx:.3f}×{sy:.3f}（非整数缩放会有 1px 取整偏差）。':
+        'Source canvas {sw}×{sh}, target {tw}×{th}, scale {sx:.3f}×{sy:.3f} '
+        '(non-integer scaling can shift geometry by 1 px).',
+    '调色板峰值 Y：{y}': 'Peak palette Y: {y}',
+    '校验问题：{issues}': 'Validation issues: {issues}',
+    'UHD 帧率建议 23.976 / 24 / 25 / 50 / 59.94 / 60。':
+        'UHD frame rates: 23.976 / 24 / 25 / 50 / 59.94 / 60.',
 }
 
 HELP_ZH = """字幕转 SUP 工具 使用说明
@@ -180,6 +206,12 @@ HELP_ZH = """字幕转 SUP 工具 使用说明
   * 单独 .sub 颜色不对：使用默认调色板的缘故；若能找到原 .idx，请打开 .idx。
   * 播放器不显示：确认已把 .sup 作为字幕轨封装进视频/ISO，且播放器开启了字幕。
   * 想保留全部段落：不要删除任何段，直接导出即可。
+
+七、4K / HDR 原盘
+  * UHD 原盘通常使用 1920×1080 PGS，由播放器放大到 4K；导出时选择「UHD HDR」即可。
+  * HDR 下 SDR 的白会偏亮，建议将字幕白压到 144 灰（Y≈140）；可在导出窗口选择亮度。
+  * 帧率仅支持 23.976 / 24 / 25 / 50 / 59.94 / 60。
+  * 「4K PGS」为试验性输出，部分播放器/封装工具可能不支持，需自行测试。
 """
 
 HELP_EN = """Sub2Sup — Help
@@ -230,6 +262,14 @@ HELP_EN = """Sub2Sup — Help
   * Nothing shows in the player: make sure the .sup is muxed as a subtitle
     track and subtitles are enabled.
   * Keep everything: simply export without removing any segment.
+
+7. 4K / HDR discs
+  * UHD discs normally use 1920×1080 PGS and the player upscales it to 4K;
+    choose "UHD HDR" when exporting.
+  * SDR white looks too bright in HDR. Lower the subtitle white to grey 144
+    (Y≈140); the brightness preset is available in the export dialog.
+  * Frame rates: 23.976 / 24 / 25 / 50 / 59.94 / 60 only.
+  * "4K PGS" is experimental; some players or muxers may not accept it.
 """
 
 ABOUT_ZH = (

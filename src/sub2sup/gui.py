@@ -954,12 +954,25 @@ class App:
             messagebox.showwarning(T('没有可导出的段落'), T('所有段落都被删除了。'),
                                    parent=self.root)
             return
+
+        source_canvas = self.canvas_size or (1920, 1080)
+        profiles = [
+            (pgs.PROFILE_BD, T('Blu-ray 1080p (SDR)')),
+            (pgs.PROFILE_UHD, T('UHD HDR (1080p PGS，推荐)')),
+            (pgs.PROFILE_4K, T('4K PGS（试验性）')),
+        ]
+        profile_by_label = {label: code for code, label in profiles}
+        fps_all = [lab for lab, _ in pgs.FPS_LABELS]
+        fps_uhd = list(pgs.UHD_FPS_LABELS)
+        hdr_labels = [T(lab) for lab, _ in pgs.HDR_PRESETS] + [T('自定义 Y')]
+
         dlg = tk.Toplevel(self.root)
         dlg.title(T('导出为 Blu-ray SUP (PGS)'))
         dlg.transient(self.root)
         dlg.grab_set()
         dlg.configure(bg=BG)
         dlg.resizable(False, False)
+        state = {'running': False, 'cancel': threading.Event()}
         dlg.protocol('WM_DELETE_WINDOW', lambda: (state['cancel'].set(), dlg.destroy()))
         ttk.Label(dlg, text=T('将导出 {kept} 段（已删除 {removed} 段）').format(
             kept=len(kept), removed=len(self.items) - len(kept)),
@@ -970,35 +983,47 @@ class App:
         ttk.Label(form, text='输出文件：').grid(row=0, column=0, sticky='w', pady=4)
         out_default = self._default_output()
         out_var = tk.StringVar(value=str(out_default))
-        ttk.Entry(form, textvariable=out_var, width=56).grid(row=0, column=1, sticky='we', pady=4)
+        ttk.Entry(form, textvariable=out_var, width=62).grid(row=0, column=1, sticky='we', pady=4)
         ttk.Button(form, text='浏览…', command=lambda: self._browse_out(out_var)).grid(
             row=0, column=2, padx=(6, 0))
 
-        ttk.Label(form, text='画布尺寸：').grid(row=1, column=0, sticky='w', pady=4)
-        canvas_var = tk.StringVar(value=f'{self.canvas_size[0]}x{self.canvas_size[1]}'
-                                if self.canvas_size else '1920x1080')
-        if self.v.idx is not None:
-            cb = ttk.Combobox(form, textvariable=canvas_var, width=14, state='readonly',
-                              values=[f'{self.canvas_size[0]}x{self.canvas_size[1]}'])
-        else:
-            cb = ttk.Combobox(form, textvariable=canvas_var, width=14, state='readonly',
-                              values=['1920x1080', '1280x720', '720x480'])
-        cb.grid(row=1, column=1, sticky='w', pady=4)
+        ttk.Label(form, text='输出规格：').grid(row=1, column=0, sticky='w', pady=4)
+        profile_var = tk.StringVar(value=profiles[0][1])
+        profile_cb = ttk.Combobox(form, textvariable=profile_var, width=36, state='readonly',
+                                  values=[label for _, label in profiles])
+        profile_cb.grid(row=1, column=1, sticky='w', pady=4)
 
-        ttk.Label(form, text='帧率代码：').grid(row=2, column=0, sticky='w', pady=4)
-        fps_labels = [lab for lab, _ in pgs.FPS_LABELS]
-        fps_var = tk.StringVar(value=fps_labels[0])
-        ttk.Combobox(form, textvariable=fps_var, width=28, state='readonly',
-                     values=fps_labels).grid(row=2, column=1, sticky='w', pady=4)
+        ttk.Label(form, text='画布尺寸：').grid(row=2, column=0, sticky='w', pady=4)
+        canvas_var = tk.StringVar(value=f'{source_canvas[0]}x{source_canvas[1]}')
+        canvas_cb = ttk.Combobox(form, textvariable=canvas_var, width=16, state='readonly',
+                                 values=[f'{source_canvas[0]}x{source_canvas[1]}'])
+        canvas_cb.grid(row=2, column=1, sticky='w', pady=4)
 
-        ttk.Label(form, text='时间偏移 (ms)：').grid(row=3, column=0, sticky='w', pady=4)
+        ttk.Label(form, text='帧率代码：').grid(row=3, column=0, sticky='w', pady=4)
+        fps_var = tk.StringVar(value=fps_all[0])
+        fps_cb = ttk.Combobox(form, textvariable=fps_var, width=28, state='readonly',
+                              values=fps_all)
+        fps_cb.grid(row=3, column=1, sticky='w', pady=4)
+
+        ttk.Label(form, text='HDR 字幕亮度：').grid(row=4, column=0, sticky='w', pady=4)
+        hdr_var = tk.StringVar(value=T('保留原白 (Y=235)'))
+        hdr_cb = ttk.Combobox(form, textvariable=hdr_var, width=32, state='disabled',
+                              values=hdr_labels)
+        hdr_cb.grid(row=4, column=1, sticky='w', pady=4)
+
+        ttk.Label(form, text='自定义 Y：').grid(row=5, column=0, sticky='w', pady=4)
+        custom_y_var = tk.StringVar(value=str(pgs.HDR_DEFAULT))
+        custom_entry = ttk.Entry(form, textvariable=custom_y_var, width=10, state='disabled')
+        custom_entry.grid(row=5, column=1, sticky='w', pady=4)
+
+        ttk.Label(form, text='时间偏移 (ms)：').grid(row=6, column=0, sticky='w', pady=4)
         offset_var = tk.StringVar(value='0')
-        ttk.Entry(form, textvariable=offset_var, width=12).grid(row=3, column=1, sticky='w', pady=4)
+        ttk.Entry(form, textvariable=offset_var, width=12).grid(row=6, column=1, sticky='w', pady=4)
 
-        ttk.Label(form, text=T('提示：输出为 1920×1080 时按 BT.709 转换调色板，颜色误差 ≤1/255；')
-                            + T('位图与时间轴完全保留。'),
-                  style='Hint.TLabel', wraplength=560).grid(row=4, column=0, columnspan=3,
-                                                            sticky='w', pady=(10, 0))
+        note_var = tk.StringVar(value='')
+        ttk.Label(form, textvariable=note_var, style='Hint.TLabel',
+                  wraplength=620).grid(row=7, column=0, columnspan=3, sticky='w', pady=(10, 0))
+
         pb = ttk.Progressbar(dlg, mode='determinate', maximum=100, length=560)
         pb.pack(fill='x', padx=18, pady=(14, 4))
         info = ttk.Label(dlg, text='', style='Hint.TLabel')
@@ -1006,7 +1031,55 @@ class App:
 
         btns = ttk.Frame(dlg, padding=(18, 12))
         btns.pack(fill='x', side='bottom')
-        state = {'running': False, 'cancel': threading.Event()}
+
+        def set_hdr_state(*_args) -> None:
+            enabled = str(hdr_cb['state']) != 'disabled'
+            custom = hdr_var.get() == T('自定义 Y')
+            custom_entry.configure(state='normal' if enabled and custom else 'disabled')
+
+        def apply_profile(*_args) -> None:
+            code = profile_by_label.get(profile_var.get(), pgs.PROFILE_BD)
+            if code == pgs.PROFILE_BD:
+                hdr_var.set(T('保留原白 (Y=235)'))
+                hdr_cb.configure(state='disabled')
+                custom_entry.configure(state='disabled')
+                if self.v.idx is not None:
+                    canvas_var.set(f'{source_canvas[0]}x{source_canvas[1]}')
+                    canvas_cb.configure(values=[f'{source_canvas[0]}x{source_canvas[1]}'],
+                                        state='readonly')
+                else:
+                    vals = ['1920x1080', '1280x720', '720x480']
+                    canvas_cb.configure(values=vals, state='readonly')
+                    if canvas_var.get() not in vals:
+                        canvas_var.set(vals[0])
+                fps_cb.configure(values=fps_all)
+                if fps_var.get() not in fps_all:
+                    fps_var.set(fps_all[0])
+                note_var.set(T('提示：输出为 1920×1080 时按 BT.709 转换调色板，颜色误差 ≤1/255；')
+                             + T('位图与时间轴完全保留。'))
+            else:
+                target = '1920x1080' if code == pgs.PROFILE_UHD else '3840x2160'
+                canvas_cb.configure(values=[target], state='readonly')
+                canvas_var.set(target)
+                fps_cb.configure(values=fps_uhd)
+                if fps_var.get() not in fps_uhd:
+                    fps_var.set(fps_uhd[0])
+                hdr_var.set(T(pgs.HDR_PRESETS[1][0]))
+                hdr_cb.configure(state='readonly')
+                note = (T('UHD 推荐：保持 1920×1080 PGS（播放器放大到 4K），HDR 下降低字幕白亮度。')
+                        if code == pgs.PROFILE_UHD
+                        else T('4K PGS 为试验性输出：部分播放器/封装工具可能不支持。'))
+                try:
+                    tw, th = (int(v) for v in target.split('x'))
+                except ValueError:
+                    tw, th = source_canvas
+                if (tw, th) != source_canvas:
+                    note += ' ' + T('当前源画布 {sw}×{sh}，目标 {tw}×{th}，缩放 {sx:.3f}×{sy:.3f}（非整数缩放会有 1px 取整偏差）。').format(
+                        sw=source_canvas[0], sh=source_canvas[1], tw=tw, th=th,
+                        sx=tw / source_canvas[0], sy=th / source_canvas[1])
+                note += ' ' + T('UHD 帧率建议 23.976 / 24 / 25 / 50 / 59.94 / 60。')
+                note_var.set(note)
+            set_hdr_state()
 
         def close() -> None:
             state['cancel'].set()
@@ -1023,6 +1096,24 @@ class App:
                 canvas = (int(w), int(h))
                 offset = int(float(offset_var.get() or '0'))
                 fps = dict(pgs.FPS_LABELS)[fps_var.get()]
+                code = profile_by_label.get(profile_var.get(), pgs.PROFILE_BD)
+                hdr_target = None
+                if code != pgs.PROFILE_BD:
+                    selected = hdr_var.get()
+                    if selected == T('自定义 Y'):
+                        hdr_target = int(custom_y_var.get())
+                        if not 16 <= hdr_target <= 235:
+                            raise ValueError('HDR Y must be 16..235')
+                    else:
+                        for lab, val in pgs.HDR_PRESETS:
+                            if T(lab) == selected:
+                                hdr_target = val
+                                break
+                    if hdr_target is not None and hdr_target >= 235:
+                        hdr_target = None
+                fps_code = pgs.fps_code_for(fps)
+                if code != pgs.PROFILE_BD and fps not in pgs.UHD_FPS:
+                    raise ValueError(T('UHD 帧率建议 23.976 / 24 / 25 / 50 / 59.94 / 60。'))
             except Exception as exc:  # noqa: BLE001
                 messagebox.showerror(T('参数错误'), str(exc), parent=dlg)
                 return
@@ -1033,15 +1124,18 @@ class App:
                         parent=dlg):
                     return
             state['running'] = True
-            run_btn.configure(state='disabled')
             start_btn.configure(state='disabled')
             q = queue.Queue()
+            profile_label = profile_var.get()
+            source = source_canvas
 
             def work() -> None:
                 try:
                     v = vobsub.VobSub(str(self.path))
                     entries = v.iter_entries(self.track)
                     indices = [it.index for it in self.items if not it.removed]
+                    sx = canvas[0] / source[0]
+                    sy = canvas[1] / source[1]
                     pgs_items = []
                     for n, i in enumerate(indices):
                         if state['cancel'].is_set():
@@ -1051,12 +1145,22 @@ class App:
                         sub = v.decode(entries[i], nxt)
                         start_t = max(0, sub.start + offset * 90)
                         end_t = max(start_t + 1, sub.end + offset * 90)
-                        pgs_items.append(pgs.PgsItem(start_t, end_t, sub.x, sub.y,
-                                                     sub.width, sub.height, sub.rows, sub.colors))
+                        item = pgs.PgsItem(start_t, end_t, sub.x, sub.y,
+                                           sub.width, sub.height, sub.rows, sub.colors)
+                        if (sx, sy) != (1.0, 1.0):
+                            item = pgs.scale_item(item, sx, sy)
+                        pgs_items.append(item)
                         q.put(('decode', n + 1, len(indices)))
                     stats = pgs.write_sup(pgs_items, str(out), canvas[0], canvas[1], fps,
-                                          progress=lambda a, b: q.put(('write', a, b)))
-                    q.put(('done', out, stats, len(indices)))
+                                          progress=lambda a, b: q.put(('write', a, b)),
+                                          hdr_target_y=hdr_target)
+                    try:
+                        report = pgs.inspect_sup(str(out), expected_canvas=canvas,
+                                                 expected_fps=fps_code,
+                                                 hdr_target_y=hdr_target)
+                    except Exception as exc:  # noqa: BLE001
+                        report = {'issues': [str(exc)]}
+                    q.put(('done', out, stats, len(indices), report, profile_label))
                 except Exception as exc:  # noqa: BLE001
                     q.put(('error', exc))
 
@@ -1074,11 +1178,12 @@ class App:
                                 done=msg[1], total=msg[2]))
                         elif msg[0] == 'done':
                             out_path, stats, count = msg[1], msg[2], msg[3]
+                            report, profile = msg[4], msg[5]
                             pb['value'] = 100
                             info.configure(text=T('完成'))
                             dlg.grab_release()
                             dlg.destroy()
-                            self._export_done(out_path, count, stats)
+                            self._export_done(out_path, count, stats, report, profile)
                             return
                         elif msg[0] == 'cancel':
                             dlg.grab_release()
@@ -1086,7 +1191,6 @@ class App:
                             return
                         elif msg[0] == 'error':
                             state['running'] = False
-                            run_btn.configure(state='normal')
                             start_btn.configure(state='normal')
                             messagebox.showerror(T('导出失败'), str(msg[1]), parent=dlg)
                             return
@@ -1103,8 +1207,10 @@ class App:
 
         start_btn = ttk.Button(btns, text=T('开始导出'), command=start)
         start_btn.pack(side='right')
-        run_btn = start_btn
         ttk.Button(btns, text=T('取消'), command=close).pack(side='right', padx=(0, 8))
+        profile_cb.bind('<<ComboboxSelected>>', apply_profile)
+        hdr_cb.bind('<<ComboboxSelected>>', set_hdr_state)
+        apply_profile()
         self._localize(dlg)
 
     def _browse_out(self, var: tk.StringVar) -> None:
@@ -1124,19 +1230,32 @@ class App:
             n += 1
         return out
 
-    def _export_done(self, out: Path, count: int, stats: dict) -> None:
+    def _export_done(self, out: Path, count: int, stats: dict,
+                     report: dict | None = None, profile: str = '') -> None:
         size = out.stat().st_size if out.exists() else 0
-        try:
-            segs = pgs.scan_sup(str(out))
-            n_pcs = sum(1 for s in segs if s['type'] == pgs.SEG_PCS)
-            check = T('结构自检通过：{segments} 个段 / {sets} 个显示集').format(
-                segments=len(segs), sets=n_pcs)
-        except Exception as exc:  # noqa: BLE001
-            check = T('结构自检异常：{error}').format(error=exc)
+        check = ''
+        if report:
+            try:
+                segs = report.get('segments', 0)
+                sets = report.get('display_sets', 0)
+                check = T('结构自检通过：{segments} 个段 / {sets} 个显示集').format(
+                    segments=segs, sets=sets)
+                peak = report.get('peak_y')
+                if peak:
+                    check += '\n' + T('调色板峰值 Y：{y}').format(y=peak)
+                issues = report.get('issues') or []
+                if issues:
+                    check += '\n' + T('校验问题：{issues}').format(
+                        issues='; '.join(str(x) for x in issues))
+            except Exception as exc:  # noqa: BLE001
+                check = T('结构自检异常：{error}').format(error=exc)
         msg = T('导出成功！\n\n{path}\n\n{count} 段，{size:.2f} MB\n{check}').format(
             path=out, count=count, size=size / 1048576, check=check)
-        if messagebox.askyesno(T('导出成功'), msg + T('\n\n是否打开所在文件夹？'),
-                               parent=self.root):
+        if profile:
+            msg += '\n' + profile
+        ask = messagebox.askyesno(T('导出成功'), msg + T('\n\n是否打开所在文件夹？'),
+                                  parent=self.root)
+        if ask:
             os.startfile(str(out.parent))  # noqa: S606
 
     # ------------------------------------------------------------- misc

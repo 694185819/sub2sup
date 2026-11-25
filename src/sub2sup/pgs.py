@@ -38,6 +38,24 @@ FPS_LABELS: list[tuple[str, float]] = [
     ('60', 60.0),
 ]
 
+# Ultra HD Blu-ray only allows these progressive frame rates.
+UHD_FPS = [23.976, 24.0, 25.0, 50.0, 59.94, 60.0]
+UHD_FPS_LABELS = [lab for lab, fps in FPS_LABELS if fps in UHD_FPS]
+
+# HDR subtitle white level presets (PGS palette luma Y, 16..235).
+# retail UHD discs often use ~RGB 144 grey for subtitles (Y ~= 140).
+HDR_PRESETS: list[tuple[str, int]] = [
+    ('保留原白 (Y=235)', 235),
+    ('UHD 灰 144 (Y≈140，推荐)', 140),
+    ('灰 160 (Y≈153)', 153),
+    ('灰 180 (Y≈171)', 171),
+]
+HDR_DEFAULT = 140
+
+PROFILE_BD = 'bluray'
+PROFILE_UHD = 'uhd'
+PROFILE_4K = '4k'
+
 SCALEBITS = 10
 ONE_HALF = 1 << (SCALEBITS - 1)
 
@@ -199,12 +217,24 @@ def decode_rle(data: bytes, w: int, h: int) -> list[bytearray] | None:
     return rows
 
 
-def build_palette(colors: list[tuple[int, int, int, int]], video_height: int) -> list[tuple[int, int, int, int, int]]:
+def scale_luma(y: int, target_y: int) -> int:
+    """Compress palette luma into a darker target white (HDR subtitle look)."""
+    target_y = max(16, min(235, int(target_y)))
+    if target_y >= 235:
+        return max(16, min(235, y))
+    out = 16 + (y - 16) * (target_y - 16) / 219.0
+    return max(16, min(235, int(round(out))))
+
+
+def build_palette(colors: list[tuple[int, int, int, int]], video_height: int,
+                  hdr_target_y: int | None = None) -> list[tuple[int, int, int, int, int]]:
     """Return PGS palette entries (index, Y, Cr, Cb, alpha)."""
     bt709 = video_height > 576
     entries = [(0, 16, 128, 128, 0)]
     for i, (r, g, b, a) in enumerate(colors):
         y, cr, cb = rgb_to_ycbcr((r, g, b), bt709)
+        if hdr_target_y is not None and hdr_target_y < 235:
+            y = scale_luma(y, hdr_target_y)
         entries.append((i + 1, y, cr, cb, min(255, max(0, a))))
     return entries
 
@@ -264,11 +294,15 @@ def _end() -> bytes:
     return bytes((SEG_END, 0x00, 0x00))
 
 
+def fps_code_for(fps: float) -> int:
+    best = min(FPS_CODES, key=lambda k: abs(k - float(fps)))
+    return FPS_CODES[best]
+
+
 def write_sup(items: list[PgsItem], out_path: str, video_w: int, video_h: int,
-              fps: float = 23.976, progress=None) -> dict:
-    fps_code = FPS_CODES.get(round(fps, 2))
-    if fps_code is None:
-        fps_code = FPS_CODES[23.976]
+              fps: float = 23.976, progress=None,
+              hdr_target_y: int | None = None) -> dict:
+    fps_code = fps_code_for(fps)
     comp = 0
     written = 0
     clear_count = 0
@@ -281,7 +315,7 @@ def write_sup(items: list[PgsItem], out_path: str, video_w: int, video_h: int,
         for k, item in enumerate(items):
             start = max(0, item.start)
             end = max(start, item.end) if item.end > start else start + 1
-            entries = build_palette(item.colors, video_h)
+            entries = build_palette(item.colors, video_h, hdr_target_y)
             ds = _pcs(video_w, video_h, fps_code, comp, 0x80, [(0, 0, 0, item.x, item.y)])
             ds += _wds([(0, item.x, item.y, item.w, item.h)])
             ds += _pds(entries)
@@ -323,10 +357,9 @@ def _split_segments(blob: bytes) -> list[bytes]:
 
 
 def scan_sup(path: str) -> list[dict]:
-    """Parse a .sup back into segments (for verification / statistics)."""
     data = open(path, 'rb').read()
-    pos = 0
     out: list[dict] = []
+    pos = 0
     while pos + 13 <= len(data):
         if data[pos:pos + 2] != b'PG':
             raise ValueError(f'{pos:#x}: not PG')
@@ -342,3 +375,108 @@ def scan_sup(path: str) -> list[dict]:
     if pos != len(data):
         raise ValueError(f'sup has {len(data) - pos} trailing bytes')
     return out
+
+
+def _be16(b: bytes, o: int = 0) -> int:
+    return (b[o] << 8) | b[o + 1]
+
+
+def scale_item(item: PgsItem, sx: float, sy: float) -> PgsItem:
+    """Nearest-neighbour scale of one PGS item (bitmap + geometry)."""
+    if sx == 1.0 and sy == 1.0:
+        return item
+    w = max(1, int(round(item.w * sx)))
+    h = max(1, int(round(item.h * sy)))
+    rows: list[bytearray] = []
+    if sx == 2.0 and sy == 2.0:
+        for src in item.rows:
+            row = bytearray(len(src) * 2)
+            row[0::2] = src
+            row[1::2] = src
+            rows.append(row)
+            rows.append(row)
+    else:
+        for yy in range(h):
+            syi = min(item.h - 1, int(yy / sy))
+            src = item.rows[syi]
+            if sx == 1.0:
+                rows.append(bytearray(src))
+            else:
+                row = bytearray(w)
+                for xx in range(w):
+                    row[xx] = src[min(item.w - 1, int(xx / sx))]
+                rows.append(row)
+    return PgsItem(item.start, item.end, int(round(item.x * sx)), int(round(item.y * sy)),
+                   w, h, rows, item.colors)
+
+
+def inspect_sup(path: str, expected_canvas=None, expected_fps=None,
+                hdr_target_y=None) -> dict:
+    """Parse an exported .sup and collect UHD/HDR validation facts."""
+    segs = scan_sup(path)
+    dims = set()
+    fps_codes = set()
+    placements: list[tuple[int, int]] = []
+    obj_dims: list[tuple[int, int]] = []
+    peak_y = 0
+    max_ods = 0
+    fragments = 0
+    display_sets = 0
+    ds_bytes = 0
+    max_ds_bytes = 0
+    for s in segs:
+        t = s['type']
+        p = s['payload']
+        if t == SEG_PCS:
+            display_sets += 1
+            max_ds_bytes = max(max_ds_bytes, ds_bytes)
+            ds_bytes = 0
+            dims.add((_be16(p, 0), _be16(p, 2)))
+            fps_codes.add(p[4])
+            n = p[10]
+            q = 11
+            for _ in range(n):
+                if q + 8 > len(p):
+                    break
+                placements.append((_be16(p, q + 4), _be16(p, q + 6)))
+                q += 8
+        elif t == SEG_PDS:
+            for k in range(2, len(p) - 4, 5):
+                peak_y = max(peak_y, p[k + 1])
+        elif t == SEG_ODS:
+            flags = p[3]
+            if flags & 0x80:
+                obj_dims.append((_be16(p, 7), _be16(p, 9)))
+            else:
+                fragments += 1
+            max_ods = max(max_ods, len(p))
+        ds_bytes += 3 + len(p)
+    max_ds_bytes = max(max_ds_bytes, ds_bytes)
+
+    issues: list[str] = []
+    if expected_canvas is not None and dims and dims != {tuple(expected_canvas)}:
+        issues.append(f'画布不一致: {sorted(dims)} != {expected_canvas}')
+    if expected_fps is not None and fps_codes and fps_codes != {expected_fps}:
+        issues.append(f'帧率代码不一致: {sorted(fps_codes)} != {expected_fps}')
+    if hdr_target_y is not None and peak_y > hdr_target_y:
+        issues.append(f'调色板峰值 Y={peak_y} > HDR 目标 {hdr_target_y}')
+    if expected_canvas is not None:
+        cw, ch = expected_canvas
+        for (x, y), (w, h) in zip(placements, obj_dims):
+            if x + w > cw or y + h > ch:
+                issues.append(f'对象越界: ({x},{y}) {w}x{h} 超出 {cw}x{ch}')
+                break
+    if max_ods > 65000:
+        issues.append(f'ODS 段过大: {max_ods} 字节（应分片）')
+    return {
+        'segments': len(segs),
+        'display_sets': display_sets,
+        'dims': dims,
+        'fps_codes': fps_codes,
+        'peak_y': peak_y,
+        'max_ods': max_ods,
+        'objects': len(obj_dims),
+        'fragments': fragments,
+        'max_display_set_bytes': max_ds_bytes,
+        'issues': issues,
+    }

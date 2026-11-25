@@ -3,7 +3,8 @@
 把 VobSub 图形字幕（`.idx + .sub` 配套，或单个 `.sub`）**无损**转换为蓝光 PGS 字幕（`.sup`），
 并支持在转换前**逐段预览、删除**不需要的字幕，例如字幕组信息、片头/片尾水印等。
 
-Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.0.1**。
+Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.1.0**。
+支持 Blu-ray 1080p SDR 与 UHD HDR 输出配置（1080p PGS + HDR 亮度预设，可选试验性 4K PGS）。
 
 ## 界面截图
 
@@ -33,6 +34,8 @@ English UI:
 - 导出标准 Blu-ray PGS `.sup`，保留原始位图、时间轴、分辨率、alpha
 - 导出后自动结构自检；可直接交给 tsMuxeR / mkvmerge 封装
 - 支持多语言轨 `.idx`；中文 / English 界面可实时切换
+- **UHD HDR 输出**：1080p PGS + HDR 字幕亮度预设（144 灰 / 自定义），
+  可选试验性 4K PGS（2× 整数放大）
 
 ## 使用
 
@@ -61,13 +64,29 @@ English UI:
 - **颜色**：调色板 RGB 转成 PGS 规定的 YCbCr（BT.709 / BT.601 limited range），
   经解码后与源 RGB 的误差 ≤1/255（YCbCr 量化本身不可避免的 1 级误差）。
 
+## UHD / HDR（4K 原盘）
+
+UHD 原盘的实际做法通常是 **1920×1080 PGS 由播放器放大到 4K**；推荐：
+
+- 目标规格选 `UHD HDR`：保持 1920×1080，不缩放位图/坐标
+- 帧率与视频一致：23.976 / 24 / 25 / 50 / 59.94 / 60（UHD 模式会限制这些值）
+- HDR 字幕亮度：建议 **144 灰（Y≈140）**。HDR 下 SDR 的白会偏亮；程序提供
+  235 / 140 / 153 / 171 / 自定义 Y 预设，只压缩亮度、不改色相
+- `4K PGS`（3840×2160）为试验性输出：位图与坐标按 2× 整数 nearest 放大；
+  部分播放器/封装工具可能不接受，需实测
+- PGS 本身不带 HDR 元数据，调色板始终是 SDR BT.709 limited；HDR10 的
+  MaxCLL / MaxFALL / Mastering display 信息在视频里，封装时保持视频流直通即可
+
+自测：UHD 输出 20 段 / 4K 输出 8 段逐像素比对通过（PCS 1920×1080 / 3840×2160、
+峰值调色板 Y≤140、无对象越界、时间戳不变）。
+
 ## 输出规格
 
 - 容器：`.sup`（`PG` 头 + PTS/DTS，90 kHz，big-endian + PGS 段）
 - 显示集：PCS / WDS / PDS / ODS / END；每段结束写入清屏显示集
 - 每个字幕一个 epoch（composition_state = epoch start），对象 0、窗口 0
 - 调色板：每段 5 个条目（索引 0 透明 + 像素值 0..3 对应索引 1..4）
-- 帧率代码：23.976 / 24 / 25 / 29.97 / 30 / 50 / 59.94 / 60（默认 23.976）
+- 帧率代码：UHD 模式 23.976 / 24 / 25 / 50 / 59.94 / 60；BD 模式另含 29.97 / 30
 - 大对象（RLE > 60 KB）自动分片为 ODS 序列，通过解码校验
 
 ## 从源码构建
@@ -89,9 +108,12 @@ py -3 -m sub2sup --cli "影片.idx" --list
 py -3 -m sub2sup --cli "影片.idx" --out "影片.sup" --drop 0,1088 --verify
 py -3 -m sub2sup --cli "影片.idx" --out "影片.sup" --keep 10-20
 py -3 -m sub2sup --cli "字幕.sub" --out "字幕.sup" --canvas 1920x1080
+py -3 -m sub2sup --cli "影片.idx" --out "影片-uhd.sup" --profile uhd --hdr-target 140
+py -3 -m sub2sup --cli "影片.idx" --out "影片-4k.sup" --profile 4k --limit 20
 ```
 
 参数：`--drop 0,5,10-12` 删除指定段；`--keep` 只保留指定段；`--fps`；`--offset-ms`；
+`--profile bluray|uhd|4k`；`--hdr-target 16..235`（UHD 默认 140）；
 `--dump 目录` 输出每段预览 PNG；`--verify` 自检。
 
 自检脚本（转换后逐段比对位图/位置/时间/颜色）：
