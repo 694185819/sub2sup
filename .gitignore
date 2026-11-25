@@ -1,0 +1,17 @@
+# build artifacts
+build/
+dist/
+*.spec
+__pycache__/
+*.py[cod]
+
+# local media / subtitle samples (do not commit copyrighted material)
+*.idx
+*.sub
+*.sup
+*.iso
+*.m2ts
+*.mkv
+dev/
+examples/
+screenshot.png
