@@ -14,8 +14,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import __version__, pgs, render, vobsub
+from . import __version__, i18n, pgs, render, vobsub
 from .icon_data import ICON_PNG_B64
+
+T = i18n.T
+
+FILTERS = [('all', '全部'), ('kept', '未删除'), ('removed', '已删除'),
+           ('top', '仅顶部'), ('full', '仅整屏')]
 
 FONT = ('Microsoft YaHei UI', 10)
 FONT_BOLD = ('Microsoft YaHei UI', 10, 'bold')
@@ -115,9 +120,11 @@ class App:
         self.photos: dict[int, tk.PhotoImage] = {}
         self.loaded = False
         self.track = 0
+        self.path: Path | None = None
         self.undo_stack: list[list[int]] = []
-        self.filter_mode = '全部'
+        self.filter_mode = 'all'
         self.show_thumbs = tk.BooleanVar(value=True)
+        self.lang_menu_var = tk.StringVar(value=i18n.get_lang())
         self.preview_mode = 'frame'  # 'frame' | 'crop'
         self.load_q: queue.Queue = queue.Queue()
         self.load_cancel = threading.Event()
@@ -154,43 +161,50 @@ class App:
         style.configure('Tree.TButton', font=FONT, padding=(6, 3))
 
     def _build_ui(self) -> None:
-        self.root.title(f'字幕转 SUP 工具  v{__version__}')
+        self._update_title()
         self.root.geometry('1480x900')
         self.root.minsize(1150, 700)
 
         menubar = tk.Menu(self.root)
         m_file = tk.Menu(menubar, tearoff=0)
-        m_file.add_command(label='打开字幕文件 (idx/sub)…', accelerator='Ctrl+O',
+        m_file.add_command(label=T('打开字幕文件 (idx/sub)…'), accelerator='Ctrl+O',
                            command=self.open_dialog)
-        m_file.add_command(label='导出为 SUP…', accelerator='Ctrl+E',
+        m_file.add_command(label=T('导出为 SUP…'), accelerator='Ctrl+E',
                            command=self.export_dialog)
         m_file.add_separator()
-        m_file.add_command(label='打开文件所在文件夹', command=self.open_folder)
-        m_file.add_command(label='退出', command=self._on_close)
-        menubar.add_cascade(label='文件', menu=m_file)
+        m_file.add_command(label=T('打开文件所在文件夹'), command=self.open_folder)
+        m_file.add_command(label=T('退出'), command=self._on_close)
+        menubar.add_cascade(label=T('文件'), menu=m_file)
 
         m_edit = tk.Menu(menubar, tearoff=0)
-        m_edit.add_command(label='删除所选段落 (Delete)', command=self.delete_selected)
-        m_edit.add_command(label='恢复所选段落', command=self.restore_selected)
-        m_edit.add_command(label='全部恢复', command=self.restore_all)
+        m_edit.add_command(label=T('删除所选段落 (Delete)'), command=self.delete_selected)
+        m_edit.add_command(label=T('恢复所选段落'), command=self.restore_selected)
+        m_edit.add_command(label=T('全部恢复'), command=self.restore_all)
         m_edit.add_separator()
-        m_edit.add_command(label='撤销上一次删除', accelerator='Ctrl+Z', command=self.undo)
-        menubar.add_cascade(label='编辑', menu=m_edit)
+        m_edit.add_command(label=T('撤销上一次删除'), accelerator='Ctrl+Z', command=self.undo)
+        menubar.add_cascade(label=T('编辑'), menu=m_edit)
 
         m_view = tk.Menu(menubar, tearoff=0)
-        for mode in ('全部', '未删除', '已删除', '仅顶部', '仅整屏'):
-            m_view.add_command(label=f'筛选：{mode}',
-                               command=lambda m=mode: self.set_filter(m))
+        for key, label in FILTERS:
+            m_view.add_command(label=T('筛选：{mode}').format(mode=T(label)),
+                               command=lambda k=key: self.set_filter(k))
         m_view.add_separator()
-        m_view.add_checkbutton(label='显示缩略图', variable=self.show_thumbs,
+        m_view.add_checkbutton(label=T('显示缩略图'), variable=self.show_thumbs,
                                command=self._apply_filter)
-        m_view.add_command(label='跳转到时间…', accelerator='Ctrl+G', command=self.jump_time)
-        menubar.add_cascade(label='视图', menu=m_view)
+        m_view.add_command(label=T('跳转到时间…'), accelerator='Ctrl+G',
+                           command=self.jump_time)
+        m_lang = tk.Menu(m_view, tearoff=0)
+        for code, name in i18n.LANG_CHOICES:
+            m_lang.add_radiobutton(label=name, value=code, variable=self.lang_menu_var,
+                                   command=lambda c=code: self._set_language(c))
+        m_view.add_cascade(label=T('语言'), menu=m_lang)
+        menubar.add_cascade(label=T('视图'), menu=m_view)
 
         m_help = tk.Menu(menubar, tearoff=0)
-        m_help.add_command(label='使用说明', command=lambda: self._open_help())
-        m_help.add_command(label='关于', command=self._about)
-        menubar.add_cascade(label='帮助', menu=m_help)
+        m_help.add_command(label=T('使用说明'), command=lambda: self._open_help())
+        m_help.add_command(label=T('关于'), command=self._about)
+        menubar.add_cascade(label=T('帮助'), menu=m_help)
+        self.menubar = menubar
         self.root.configure(menu=menubar)
 
         # toolbar
@@ -212,18 +226,26 @@ class App:
         self.btn_undo.pack(side='left', padx=(6, 0))
         ttk.Separator(bar, orient='vertical').pack(side='left', fill='y', padx=12)
         ttk.Label(bar, text='筛选：').pack(side='left')
-        self.filter_var = tk.StringVar(value='全部')
-        self.filter_box = ttk.Combobox(bar, textvariable=self.filter_var, width=9,
+        self.filter_var = tk.StringVar(value=T('全部'))
+        self.filter_box = ttk.Combobox(bar, textvariable=self.filter_var, width=11,
                                        state='readonly',
-                                       values=['全部', '未删除', '已删除', '仅顶部', '仅整屏'])
+                                       values=[T(label) for _, label in FILTERS])
         self.filter_box.pack(side='left')
-        self.filter_box.bind('<<ComboboxSelected>>',
-                             lambda e: self.set_filter(self.filter_var.get()))
+        self.filter_box.bind('<<ComboboxSelected>>', self._on_filter_change)
         self.filter_box.configure(state='disabled')
         ttk.Separator(bar, orient='vertical').pack(side='left', fill='y', padx=12)
         self.btn_jump = ttk.Button(bar, text='跳转时间…', command=self.jump_time,
                                    state='disabled')
         self.btn_jump.pack(side='left')
+        ttk.Separator(bar, orient='vertical').pack(side='left', fill='y', padx=12)
+        self.lang_label = ttk.Label(bar, text='语言：')
+        self.lang_label.pack(side='left')
+        self.lang_var = tk.StringVar(value=i18n.lang_display())
+        self.lang_box = ttk.Combobox(bar, textvariable=self.lang_var, width=10,
+                                     state='readonly',
+                                     values=[name for _, name in i18n.LANG_CHOICES])
+        self.lang_box.pack(side='left')
+        self.lang_box.bind('<<ComboboxSelected>>', self._on_lang_combo)
         self.track_label = ttk.Label(bar, text='语言轨：')
         self.track_var = tk.StringVar()
         self.track_box = ttk.Combobox(bar, textvariable=self.track_var, width=18,
@@ -242,9 +264,9 @@ class App:
         self.tree = ttk.Treeview(left, show='tree headings', selectmode='extended',
                                  columns=('idx', 'start', 'end', 'dur', 'pos', 'size'))
         self.tree.heading('#0', text='缩略图')
-        self.tree.column('#0', width=252, minwidth=120, stretch=False)
+        self.tree.column('#0', width=272, minwidth=140, stretch=False)
         self.tree.heading('idx', text='序号')
-        self.tree.column('idx', width=56, anchor='w', stretch=False)
+        self.tree.column('idx', width=62, anchor='w', stretch=False)
         self.tree.heading('start', text='开始')
         self.tree.column('start', width=92, anchor='w', stretch=False)
         self.tree.heading('end', text='结束')
@@ -318,6 +340,9 @@ class App:
         self.root.bind('<Prior>', lambda e: self.step(-10))
         self.root.bind('<Next>', lambda e: self.step(10))
 
+        self._localize(self.root)
+        self.filter_var.set(self._filter_display())
+
         try:
             if APP_ICON_PNG:
                 self._icon = tk.PhotoImage(data=base64.b64encode(APP_ICON_PNG))
@@ -325,11 +350,137 @@ class App:
         except Exception:
             pass
 
+    # ------------------------------------------------------------- i18n
+    def _update_title(self) -> None:
+        name = self.path.name if self.path is not None else None
+        if name:
+            self.root.title(T('字幕转 SUP 工具  v{version}  —  {name}').format(
+                version=__version__, name=name))
+        else:
+            self.root.title(T('字幕转 SUP 工具  v{version}').format(version=__version__))
+
+    def _localize(self, widget) -> None:
+        """Translate static texts of an already-built widget tree."""
+        try:
+            if 'text' in widget.keys():
+                txt = widget.cget('text')
+                if isinstance(txt, str) and txt:
+                    new = T(txt)
+                    if new != txt:
+                        widget.configure(text=new)
+        except tk.TclError:
+            pass
+        try:
+            if isinstance(widget, ttk.Combobox):
+                vals = list(widget.cget('values'))
+                new_vals = [T(str(v)) for v in vals]
+                if new_vals != vals:
+                    widget.configure(values=new_vals)
+        except tk.TclError:
+            pass
+        try:
+            if isinstance(widget, ttk.Treeview):
+                for col in ('#0',) + tuple(widget['columns']):
+                    head = widget.heading(col).get('text', '')
+                    if head:
+                        widget.heading(col, text=T(head))
+        except tk.TclError:
+            pass
+        for child in widget.winfo_children():
+            self._localize(child)
+
+    def _localize_menu(self, menu) -> None:
+        last = menu.index('end')
+        if last is None:
+            return
+        for i in range(last + 1):
+            kind = menu.type(i)
+            if kind == 'separator':
+                continue
+            try:
+                label = menu.entrycget(i, 'label')
+            except tk.TclError:
+                continue
+            if label:
+                new = T(label)
+                if new != label:
+                    menu.entryconfigure(i, label=new)
+            if kind == 'cascade':
+                try:
+                    sub = self.root.nametowidget(menu.entrycget(i, 'menu'))
+                except Exception:
+                    continue
+                self._localize_menu(sub)
+
+    def _filter_display(self) -> str:
+        labels = dict(FILTERS)
+        return T(labels.get(self.filter_mode, '全部'))
+
+    def _filter_key_from_label(self, label: str) -> str:
+        for key, text in FILTERS:
+            if T(text) == label:
+                return key
+        return 'all'
+
+    def _on_filter_change(self, _event=None) -> None:
+        self.set_filter(self._filter_key_from_label(self.filter_var.get()))
+
+    def _on_lang_combo(self, _event=None) -> None:
+        name = self.lang_var.get()
+        for code, label in i18n.LANG_CHOICES:
+            if label == name:
+                self._set_language(code)
+                return
+        self.lang_var.set(i18n.lang_display())
+
+    def _set_language(self, code: str) -> None:
+        if code == i18n.get_lang():
+            self.lang_var.set(i18n.lang_display())
+            self.lang_menu_var.set(i18n.get_lang())
+            return
+        if self._busy:
+            self.lang_var.set(i18n.lang_display())
+            self.lang_menu_var.set(i18n.get_lang())
+            return
+        i18n.set_lang(code)
+        self.lang_menu_var.set(code)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self) -> None:
+        current = self.current_index
+        was_loaded = self.loaded
+        for w in list(self.root.winfo_children()):
+            w.destroy()
+        self.lang_menu_var.set(i18n.get_lang())
+        self._build_ui()
+        self._localize_menu(self.menubar)
+        self.lang_var.set(i18n.lang_display())
+        self.filter_var.set(self._filter_display())
+        self._set_controls_enabled(was_loaded)
+        if was_loaded:
+            self._apply_filter()
+            self._update_counts()
+            kids = self.tree.get_children()
+            if current is not None and str(current) in kids:
+                self.tree.selection_set(str(current))
+                self.tree.see(str(current))
+                self.tree.focus(str(current))
+            elif kids:
+                self.tree.selection_set(kids[0])
+                self.tree.see(kids[0])
+            self._update_buttons()
+            if self.current_index is not None:
+                self._render_preview(self.current_index)
+        else:
+            self.preview_label.configure(
+                text=T('打开字幕文件后在这里预览\n\n(黑底位置与原片一致)'), image='')
+        self._update_title()
+
     # ------------------------------------------------------------- opening
     def open_dialog(self) -> None:
         path = filedialog.askopenfilename(
-            title='打开 VobSub 字幕（.idx 会自动找同名 .sub）',
-            filetypes=[('VobSub 字幕', '*.idx *.sub'), ('所有文件', '*.*')])
+            title=T('打开 VobSub 字幕（.idx 会自动找同名 .sub）'),
+            filetypes=[(T('VobSub 字幕'), '*.idx *.sub'), (T('所有文件'), '*.*')])
         if path:
             self.open_path(Path(path))
 
@@ -348,8 +499,8 @@ class App:
         self.loaded = False
         self.current_index = None
         self.path = Path(path)
-        self.filter_mode = '全部'
-        self.filter_var.set('全部')
+        self.filter_mode = 'all'
+        self.filter_var.set(self._filter_display())
         self.warn_label.configure(text='')
         self._show_load_progress(Path(path).name)
         threading.Thread(target=self._load_worker, args=(Path(path), self._load_gen),
@@ -362,26 +513,28 @@ class App:
             self._load_info = None
             return
         top = tk.Toplevel(self.root)
-        top.title('正在读取字幕')
+        top.title(T('正在读取字幕'))
         top.transient(self.root)
         top.resizable(False, False)
         top.configure(bg=BG)
         top.grab_set()
         top.geometry('460x150')
-        ttk.Label(top, text=f'正在解析：{name}', style='TLabel').pack(anchor='w', padx=16, pady=(16, 4))
+        ttk.Label(top, text=T('正在解析：{name}').format(name=name), style='TLabel').pack(
+            anchor='w', padx=16, pady=(16, 4))
         pb = ttk.Progressbar(top, mode='determinate', maximum=100, length=420)
         pb.pack(padx=16, pady=4)
-        info = ttk.Label(top, text='准备中…', style='Hint.TLabel')
+        info = ttk.Label(top, text=T('准备中…'), style='Hint.TLabel')
         info.pack(anchor='w', padx=16)
         btns = ttk.Frame(top, padding=(16, 10))
         btns.pack(fill='x', side='bottom')
 
         def cancel() -> None:
             self.load_cancel.set()
-            info.configure(text='正在取消…')
+            info.configure(text=T('正在取消…'))
 
-        ttk.Button(btns, text='取消', command=cancel).pack(side='right')
+        ttk.Button(btns, text=T('取消'), command=cancel).pack(side='right')
         top.protocol('WM_DELETE_WINDOW', cancel)
+        self._localize(top)
         self.load_progress = top
         self._load_pb = pb
         self._load_info = info
@@ -423,7 +576,7 @@ class App:
                     self.path = path
                     self.canvas_size = v.size
                     self.status_file.configure(text=self._short_path(v.idx_path or v.sub_path))
-                    self.root.title(f'字幕转 SUP 工具  v{__version__}  —  {path.name}')
+                    self._update_title()
                     if v.warnings:
                         self.warn_label.configure(text='；'.join(v.warnings[:2]))
                     self._setup_tracks(v)
@@ -437,7 +590,8 @@ class App:
                     done, total = msg[2], msg[3]
                     if self.load_progress is not None and self._load_pb is not None:
                         self._load_pb['value'] = done * 100 / max(1, total)
-                        self._load_info.configure(text=f'{done} / {total} 段')
+                        self._load_info.configure(text=T('{done} / {total} 段').format(
+                            done=done, total=total))
                 elif kind == 'done':
                     self._finish_load()
                 elif kind == 'cancelled':
@@ -480,7 +634,7 @@ class App:
         if error is not None:
             self.items = []
             self.v = None
-            messagebox.showerror('打开失败', str(error), parent=self.root)
+            messagebox.showerror(T('打开失败'), str(error), parent=self.root)
         elif cancelled:
             self.items = []
             self.v = None
@@ -490,7 +644,7 @@ class App:
             self._update_counts()
             if self.v.size is None:
                 self._guess_canvas()
-            self.filter_label.configure(text=f'共 {len(self.items)} 段')
+            self.filter_label.configure(text=T('共 {total} 段').format(total=len(self.items)))
             self._apply_filter()
             first = self._first_visible()
             if first is not None:
@@ -499,7 +653,7 @@ class App:
                 self.tree.focus(str(first))
             self.status_file.configure(text=self._short_path(self.v.idx_path or self.v.sub_path))
         else:
-            self.status_file.configure(text='未打开文件')
+            self.status_file.configure(text=T('未打开文件'))
             self.status_counts.configure(text='')
 
     def _guess_canvas(self) -> None:
@@ -511,8 +665,8 @@ class App:
             self.canvas_size = (1280, 720)
         else:
             self.canvas_size = (1920, 1080)
-        self.warn_label.configure(
-            text='单 .sub 文件：调色板使用经典 VobSub 默认值，画布尺寸请按原片在导出时确认。')
+        self.warn_label.configure(text=T(
+            '单 .sub 文件：调色板使用经典 VobSub 默认值，画布尺寸请按原片在导出时确认。'))
 
     def _insert_item(self, info: ItemInfo) -> None:
         values = (f'{info.index:04d}',
@@ -545,7 +699,7 @@ class App:
             zone = '底部'
         else:
             zone = '中部'
-        return f'{zone} y={it.y}'
+        return f'{T(zone)} y={it.y}'
 
     # ------------------------------------------------------------- selection
     def on_select(self, _event=None) -> None:
@@ -601,7 +755,7 @@ class App:
             entry = self.v.iter_entries(self.track)[index]
             sub = self.v.decode(entry, self._next_start(index))
         except Exception as exc:  # noqa: BLE001
-            self.info_label.configure(text=f'预览失败：{exc}')
+            self.info_label.configure(text=T('预览失败：{exc}').format(exc=exc))
             return
         if token != self._preview_token:
             return
@@ -617,13 +771,15 @@ class App:
         self._preview_photo = photo
         self.preview_label.configure(image=photo, text='')
         self.info_label.configure(
-            text=f'#{index:04d}    {vobsub.ticks_to_time(info.start)} → {vobsub.ticks_to_time(info.end)}'
-                 f'    {info.duration / 90000:.3f} 秒    位置 ({info.x}, {info.y})    {info.w}×{info.h}')
+            text=T('#{index:04d}    {start} → {end}    {dur:.3f} 秒    位置 ({x}, {y})    {w}×{h}').format(
+                index=index, start=vobsub.ticks_to_time(info.start),
+                end=vobsub.ticks_to_time(info.end), dur=info.duration / 90000,
+                x=info.x, y=info.y, w=info.w, h=info.h))
         warn = '；'.join(info.warnings)
         self.warn_label.configure(text=warn)
         removed = info.removed
-        self.btn_toggle.configure(text='恢复此段 (Space)' if removed else '删除此段 (Space)')
-        self.btn_zoom.configure(text='整帧预览' if self.preview_mode == 'crop' else '细节 1:1')
+        self.btn_toggle.configure(text=T('恢复此段 (Space)') if removed else T('删除此段 (Space)'))
+        self.btn_zoom.configure(text=T('整帧预览') if self.preview_mode == 'crop' else T('细节 1:1'))
 
     def _next_start(self, index: int) -> int | None:
         entries = self.v.iter_entries(self.track)
@@ -685,8 +841,11 @@ class App:
         removed = sum(1 for it in self.items if it.removed)
         kept = total - removed
         if total:
-            self.status_counts.configure(text=f'共 {total} 段   保留 {kept} 段   已删除 {removed} 段')
-            self.filter_label.configure(text=f'显示 {len(self.tree.get_children())} / {total} 段')
+            self.status_counts.configure(text=T(
+                '共 {total} 段   保留 {kept} 段   已删除 {removed} 段').format(
+                total=total, kept=kept, removed=removed))
+            self.filter_label.configure(text=T('显示 {shown} / {total} 段').format(
+                shown=len(self.tree.get_children()), total=total))
         else:
             self.status_counts.configure(text='')
 
@@ -712,20 +871,22 @@ class App:
 
     # ------------------------------------------------------------- filtering
     def set_filter(self, mode: str) -> None:
+        if mode not in dict(FILTERS):
+            mode = 'all'
         self.filter_mode = mode
-        self.filter_var.set(mode)
+        self.filter_var.set(self._filter_display())
         self._apply_filter()
 
     def _match(self, info: ItemInfo) -> bool:
         mode = self.filter_mode
-        if mode == '未删除':
+        if mode == 'kept':
             return not info.removed
-        if mode == '已删除':
+        if mode == 'removed':
             return info.removed
-        if mode == '仅顶部':
+        if mode == 'top':
             vh = self.canvas_size[1] if self.canvas_size else 1080
             return (info.y + info.h / 2) < vh * 0.36
-        if mode == '仅整屏':
+        if mode == 'full':
             vh = self.canvas_size[1] if self.canvas_size else 1080
             return info.h > vh * 0.5
         return True
@@ -753,12 +914,13 @@ class App:
         if not self.loaded:
             return
         top = tk.Toplevel(self.root)
-        top.title('跳转到时间')
+        top.title(T('跳转到时间'))
         top.transient(self.root)
         top.grab_set()
         top.configure(bg=BG)
-        top.geometry('380x150')
-        ttk.Label(top, text='输入时间（如 00:03:26.5 或 206.5 秒）：').pack(anchor='w', padx=16, pady=(16, 6))
+        top.geometry('420x150')
+        ttk.Label(top, text=T('输入时间（如 00:03:26.5 或 206.5 秒）：')).pack(
+            anchor='w', padx=16, pady=(16, 6))
         var = tk.StringVar()
         ent = ttk.Entry(top, textvariable=var, width=24)
         ent.pack(padx=16, anchor='w')
@@ -768,19 +930,20 @@ class App:
             try:
                 ticks = vobsub.parse_time(var.get())
             except Exception:
-                messagebox.showerror('时间格式错误', '请输入 mm:ss 或 hh:mm:ss.mmm', parent=top)
+                messagebox.showerror(T('时间格式错误'), T('请输入 mm:ss 或 hh:mm:ss.mmm'),
+                                     parent=top)
                 return
             top.destroy()
             best = min(range(len(self.items)), key=lambda i: abs(self.items[i].start - ticks))
             if str(best) not in self.tree.get_children():
-                self.filter_var.set('全部')
-                self.set_filter('全部')
+                self.set_filter('all')
             self.tree.selection_set(str(best))
             self.tree.see(str(best))
             self.tree.focus(str(best))
 
         ent.bind('<Return>', lambda e: go())
-        ttk.Button(top, text='跳转', command=go).pack(anchor='e', padx=16, pady=10)
+        ttk.Button(top, text=T('跳转'), command=go).pack(anchor='e', padx=16, pady=10)
+        self._localize(top)
 
     # ------------------------------------------------------------- export
     def export_dialog(self) -> None:
@@ -788,17 +951,19 @@ class App:
             return
         kept = [it for it in self.items if not it.removed]
         if not kept:
-            messagebox.showwarning('没有可导出的段落', '所有段落都被删除了。', parent=self.root)
+            messagebox.showwarning(T('没有可导出的段落'), T('所有段落都被删除了。'),
+                                   parent=self.root)
             return
         dlg = tk.Toplevel(self.root)
-        dlg.title('导出为 Blu-ray SUP (PGS)')
+        dlg.title(T('导出为 Blu-ray SUP (PGS)'))
         dlg.transient(self.root)
         dlg.grab_set()
         dlg.configure(bg=BG)
         dlg.resizable(False, False)
         dlg.protocol('WM_DELETE_WINDOW', lambda: (state['cancel'].set(), dlg.destroy()))
-        ttk.Label(dlg, text=f'将导出 {len(kept)} 段（已删除 {len(self.items) - len(kept)} 段）',
-                  style='Info.TLabel').pack(anchor='w', padx=18, pady=(18, 8))
+        ttk.Label(dlg, text=T('将导出 {kept} 段（已删除 {removed} 段）').format(
+            kept=len(kept), removed=len(self.items) - len(kept)),
+            style='Info.TLabel').pack(anchor='w', padx=18, pady=(18, 8))
 
         form = ttk.Frame(dlg)
         form.pack(fill='x', padx=18)
@@ -830,8 +995,8 @@ class App:
         offset_var = tk.StringVar(value='0')
         ttk.Entry(form, textvariable=offset_var, width=12).grid(row=3, column=1, sticky='w', pady=4)
 
-        ttk.Label(form, text='提示：输出为 1920×1080 时按 BT.709 转换调色板，颜色误差 ≤1/255；'
-                             '位图与时间轴完全保留。',
+        ttk.Label(form, text=T('提示：输出为 1920×1080 时按 BT.709 转换调色板，颜色误差 ≤1/255；')
+                            + T('位图与时间轴完全保留。'),
                   style='Hint.TLabel', wraplength=560).grid(row=4, column=0, columnspan=3,
                                                             sticky='w', pady=(10, 0))
         pb = ttk.Progressbar(dlg, mode='determinate', maximum=100, length=560)
@@ -853,16 +1018,19 @@ class App:
             try:
                 out = Path(out_var.get()).expanduser()
                 if not str(out):
-                    raise ValueError('输出路径为空')
+                    raise ValueError(T('输出路径为空'))
                 w, h = canvas_var.get().lower().split('x')
                 canvas = (int(w), int(h))
                 offset = int(float(offset_var.get() or '0'))
                 fps = dict(pgs.FPS_LABELS)[fps_var.get()]
             except Exception as exc:  # noqa: BLE001
-                messagebox.showerror('参数错误', str(exc), parent=dlg)
+                messagebox.showerror(T('参数错误'), str(exc), parent=dlg)
                 return
             if out.exists():
-                if not messagebox.askyesno('覆盖文件', f'文件已存在：\\n{out}\\n\\n是否覆盖？', parent=dlg):
+                if not messagebox.askyesno(
+                        T('覆盖文件'),
+                        T('文件已存在：\n{path}\n\n是否覆盖？').format(path=out),
+                        parent=dlg):
                     return
             state['running'] = True
             run_btn.configure(state='disabled')
@@ -898,14 +1066,16 @@ class App:
                         msg = q.get_nowait()
                         if msg[0] == 'decode':
                             pb['value'] = msg[1] / max(1, msg[2]) * 60
-                            info.configure(text=f'解码 {msg[1]}/{msg[2]} 段')
+                            info.configure(text=T('解码 {done}/{total} 段').format(
+                                done=msg[1], total=msg[2]))
                         elif msg[0] == 'write':
                             pb['value'] = 60 + msg[1] / max(1, msg[2]) * 40
-                            info.configure(text=f'写入 {msg[1]}/{msg[2]} 段')
+                            info.configure(text=T('写入 {done}/{total} 段').format(
+                                done=msg[1], total=msg[2]))
                         elif msg[0] == 'done':
                             out_path, stats, count = msg[1], msg[2], msg[3]
                             pb['value'] = 100
-                            info.configure(text='完成')
+                            info.configure(text=T('完成'))
                             dlg.grab_release()
                             dlg.destroy()
                             self._export_done(out_path, count, stats)
@@ -918,7 +1088,7 @@ class App:
                             state['running'] = False
                             run_btn.configure(state='normal')
                             start_btn.configure(state='normal')
-                            messagebox.showerror('导出失败', str(msg[1]), parent=dlg)
+                            messagebox.showerror(T('导出失败'), str(msg[1]), parent=dlg)
                             return
                 except queue.Empty:
                     pass
@@ -931,15 +1101,16 @@ class App:
             threading.Thread(target=work, daemon=True).start()
             dlg.after(60, poll)
 
-        start_btn = ttk.Button(btns, text='开始导出', command=start)
+        start_btn = ttk.Button(btns, text=T('开始导出'), command=start)
         start_btn.pack(side='right')
         run_btn = start_btn
-        ttk.Button(btns, text='取消', command=close).pack(side='right', padx=(0, 8))
+        ttk.Button(btns, text=T('取消'), command=close).pack(side='right', padx=(0, 8))
+        self._localize(dlg)
 
     def _browse_out(self, var: tk.StringVar) -> None:
         path = filedialog.asksaveasfilename(
-            title='保存 SUP 文件', defaultextension='.sup',
-            filetypes=[('Blu-ray 字幕', '*.sup')],
+            title=T('保存 SUP 文件'), defaultextension='.sup',
+            filetypes=[(T('Blu-ray 字幕'), '*.sup')],
             initialfile=Path(var.get()).name if var.get() else 'output.sup')
         if path:
             var.set(path)
@@ -958,12 +1129,14 @@ class App:
         try:
             segs = pgs.scan_sup(str(out))
             n_pcs = sum(1 for s in segs if s['type'] == pgs.SEG_PCS)
-            check = f'结构自检通过：{len(segs)} 个段 / {n_pcs} 个显示集'
+            check = T('结构自检通过：{segments} 个段 / {sets} 个显示集').format(
+                segments=len(segs), sets=n_pcs)
         except Exception as exc:  # noqa: BLE001
-            check = f'结构自检异常：{exc}'
-        msg = (f'导出成功！\n\n{out}\n\n'
-               f'{count} 段，{size / 1048576:.2f} MB\n{check}')
-        if messagebox.askyesno('导出成功', msg + '\n\n是否打开所在文件夹？', parent=self.root):
+            check = T('结构自检异常：{error}').format(error=exc)
+        msg = T('导出成功！\n\n{path}\n\n{count} 段，{size:.2f} MB\n{check}').format(
+            path=out, count=count, size=size / 1048576, check=check)
+        if messagebox.askyesno(T('导出成功'), msg + T('\n\n是否打开所在文件夹？'),
+                               parent=self.root):
             os.startfile(str(out.parent))  # noqa: S606
 
     # ------------------------------------------------------------- misc
@@ -972,23 +1145,24 @@ class App:
             os.startfile(str((self.v.idx_path or self.v.sub_path).parent))  # noqa: S606
 
     def _open_help(self) -> None:
-        roots = []
-        if getattr(sys, 'frozen', False):
-            roots.append(Path(sys.executable).parent)
-        else:
-            roots.append(Path(__file__).resolve().parents[2])
-        roots.append(Path.cwd())
-        for base in roots:
-            for name in ('使用说明.txt', 'README.md'):
-                p = base / name
-                if p.exists():
-                    os.startfile(str(p))  # noqa: S606
-                    return
+        if i18n.get_lang() == 'zh':
+            roots = []
+            if getattr(sys, 'frozen', False):
+                roots.append(Path(sys.executable).parent)
+            else:
+                roots.append(Path(__file__).resolve().parents[2])
+            roots.append(Path.cwd())
+            for base in roots:
+                for name in ('使用说明.txt', 'README.md'):
+                    p = base / name
+                    if p.exists():
+                        os.startfile(str(p))  # noqa: S606
+                        return
         self._show_help_window()
 
     def _show_help_window(self) -> None:
         top = tk.Toplevel(self.root)
-        top.title('使用说明')
+        top.title(T('使用说明'))
         top.geometry('780x640')
         top.transient(self.root)
         top.configure(bg=BG)
@@ -1000,20 +1174,14 @@ class App:
         txt.configure(yscrollcommand=sb.set)
         txt.pack(side='left', fill='both', expand=True)
         sb.pack(side='right', fill='y')
-        txt.insert('1.0', HELP_TEXT)
+        txt.insert('1.0', i18n.help_text())
         txt.configure(state='disabled')
-        ttk.Button(top, text='关闭', command=top.destroy).pack(pady=8, anchor='e', padx=14)
+        ttk.Button(top, text=T('关闭'), command=top.destroy).pack(pady=8, anchor='e', padx=14)
 
     def _about(self) -> None:
         messagebox.showinfo(
-            '关于',
-            f'字幕转 SUP 工具 v{__version__}\n\n'
-            'VobSub (idx/sub) → Blu-ray PGS (.sup) 无损转换工具\n'
-            '支持按段删除字幕（例如字幕组信息），再导出。\n\n'
-            '位图: 1:1 重编码（不重新渲染）\n'
-            '时间: 保持原始 90 kHz 时间戳\n'
-            '颜色: 调色板转 YCbCr，误差 ≤1/255\n\n'
-            '可直接用于 tsMuxeR / mkvmerge 等封装。',
+            T('关于'),
+            i18n.about_text(__version__),
             parent=self.root)
 
     def _set_controls_enabled(self, enabled: bool) -> None:
@@ -1025,6 +1193,7 @@ class App:
         self.btn_export.configure(state='normal' if enabled else 'disabled')
         self.btn_undo.configure(state='disabled')
         self.filter_box.configure(state='readonly' if enabled else 'disabled')
+        self.lang_box.configure(state='readonly' if enabled else 'disabled')
 
     def _short_path(self, path: Path) -> str:
         s = str(path)
@@ -1037,9 +1206,17 @@ class App:
 
 def main() -> None:
     _dpi_aware()
+    args = sys.argv[1:]
+    lang = os.environ.get('SUB2SUP_LANG')
+    if '--lang' in args:
+        i = args.index('--lang')
+        if i + 1 < len(args):
+            lang = args[i + 1]
+        del args[i:i + 2]
+    i18n.init_lang(lang)
     root = tk.Tk()
     app = App(root)
-    files = [a for a in sys.argv[1:] if not a.startswith('-')]
+    files = [a for a in args if not a.startswith('-')]
     for a in files:
         p = Path(a)
         if p.suffix.lower() in ('.idx', '.sub') and p.exists():

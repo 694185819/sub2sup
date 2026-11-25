@@ -3,7 +3,20 @@
 把 VobSub 图形字幕（`.idx + .sub` 配套，或单个 `.sub`）**无损**转换为蓝光 PGS 字幕（`.sup`），
 并支持在转换前**逐段预览、删除**不需要的字幕（例如字幕组信息、片头/片尾水印等）。
 
-Windows 图形界面，单文件 exe，不需要安装 Python。
+Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.0.1**。
+
+## 界面截图
+
+中文界面：
+
+![中文界面](docs/screenshot-zh.png)
+
+English UI:
+
+![English UI](docs/screenshot-en.png)
+
+界面语言可在「视图 → 语言」或工具栏右上角的「语言 / Language」下拉框中随时切换；
+首次启动跟随系统语言，之后会记住选择。
 
 ## 下载
 
@@ -19,7 +32,7 @@ Windows 图形界面，单文件 exe，不需要安装 Python。
 - 多选删除 / 恢复 / 撤销 / 全部恢复；按「仅顶部、仅整屏、已删除」等筛选
 - 导出标准 Blu-ray PGS `.sup`，保留原始位图、时间轴、分辨率、alpha
 - 导出后自动结构自检；可直接交给 tsMuxeR / mkvmerge 封装
-- 支持多语言轨 `.idx`
+- 支持多语言轨 `.idx`；中文 / English 界面可实时切换
 
 ## 使用
 
@@ -33,6 +46,11 @@ Windows 图形界面，单文件 exe，不需要安装 Python。
 
 快捷键：`Ctrl+O` 打开、`Ctrl+E` 导出、`Ctrl+Z` 撤销、`Ctrl+G` 跳转时间、
 `Space` 删除/恢复当前段、`PgUp/PgDn` 上下翻 10 段。
+
+## 演示字幕
+
+`demo/demo.idx` + `demo/demo.sub` 是程序生成的纯演示字幕（4 段中英双语文字，无版权内容），
+打开即可试用本工具；上面的界面截图也来自这份演示字幕。
 
 ## 为什么是“无损”
 
@@ -80,6 +98,7 @@ py -3 -m sub2sup --cli "字幕.sub" --out "字幕.sup" --canvas 1920x1080
 
 ```bat
 py -3 tests\selftest.py "影片.idx"
+py -3 tests\selftest.py demo\demo.idx
 ```
 
 ## 已知限制
