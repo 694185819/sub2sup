@@ -9,7 +9,7 @@ Windows 图形界面，单文件 exe，不需要安装 Python。
 
 到 [Releases](https://github.com/694185819/sub2sup/releases) 下载 `Sub2Sup.exe`，双击即可运行。也可直接把 `.idx` 文件拖到 exe 上打开。
 
-> 从源码构建：见下方「构建」。
+> 从源码构建：见下方「从源码构建」。
 
 ## 功能
 
