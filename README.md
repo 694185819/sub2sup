@@ -4,7 +4,7 @@
 也支持把 **ASS / SSA / SRT / WebVTT / MicroDVD** 文本字幕重新渲染为 PGS；
 并支持在转换前**逐段预览、删除**不需要的字幕，例如字幕组信息、片头/片尾水印等。
 
-Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.2.0**。
+Windows 图形界面（中文 / English 可切换），单文件 exe，不需要安装 Python。当前版本 **v1.2.1**。
 支持 Blu-ray 1080p SDR 与 UHD HDR 输出配置（1080p PGS + HDR 亮度预设，可选试验性 4K PGS）。
 支持把字幕文件直接拖进程序窗口，或拖到 exe 图标上打开。
 支持自动检查更新，发现新版本可直接下载并在退出后替换重启。
@@ -85,11 +85,13 @@ English UI:
 但同样支持预览、按段删除、时间轴、UHD/HDR 与 4K。
 
 - ASS 常用样式：字体、字号、粗体/斜体/下划线/删除线、主色/描边色/阴影色、
-  描边宽度、阴影、对齐、边距、`\pos` / `\an`、`\N` 换行、`\h` 空格、内联颜色等。
+  描边宽度、阴影、对齐、边距、字距 Spacing / `\fsp`、`\pos` / `\an`、`\N` 换行、
+  `\h` 空格、矩形 `\clip` / `\iclip`、`\blur` / `\be` 边缘模糊、内联颜色等。
+- SRT / VTT / MicroDVD 长行按画面宽度自动换行（中文按字、英文按单词）。
 - SRT / VTT：基础 `<b> <i> <u> <font color>`、`{\an8}`、VTT `align/line` 设置。
 - MicroDVD：自动读取帧率头，基础 `{Y:i}` 等样式；默认 23.976 fps。
 - 重叠字幕按时间区间合成到同一画面，逐段删除仍然有效。
-- 不支持 `\p` 绘图、`\move` / `\t` 动画、旋转、裁剪、卡拉OK变色等复杂特效；
+- 不支持 `\p` 绘图、`\move` / `\t` 动画、旋转、卡拉OK变色等复杂特效；
   遇到会提示并忽略，不会中断导出。
 - 字体来自 Windows 系统，找不到时回退到微软雅黑 / 黑体 / Arial。
 - 4K PGS 时文本按 3840×2160 原生重绘，比放大 1080p 位图更清晰。
@@ -164,6 +166,7 @@ py -3 -m sub2sup --cli "字幕.srt" --out "字幕-4k.sup" --profile 4k --limit 5
 ```bat
 py -3 tests\selftest.py "影片.idx"
 py -3 tests\selftest.py demo\demo.idx
+py -3 tests\text_selftest.py
 ```
 
 ## 已知限制
@@ -174,7 +177,7 @@ py -3 tests\selftest.py demo\demo.idx
 - `.idx` 中的 `custom colors`、`scale`、`org` 等非常规字段不支持，载入时会提示。
 - 输出为 PGS 图形字幕，不可在播放器中修改字体/字号。
 - 文本字幕是重新渲染：ASS 绘图、动画、旋转、卡拉OK变色、复杂字体变形等不支持；
-  字距/换行/斜体等与 libass 可能有细微差异。SRT 长行不会自动按画面宽度换行。
+  字距/换行/斜体等与 libass 可能有细微差异。SRT 长行会自动换行。
 
 ## 免责声明
 

@@ -15,13 +15,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
     PIL_OK = True
     PIL_ERROR = ''
 except Exception as _exc:  # noqa: BLE001
     Image = None
+    ImageChops = None
     ImageDraw = None
+    ImageFilter = None
     ImageFont = None
     PIL_OK = False
     PIL_ERROR = str(_exc)
@@ -211,6 +213,9 @@ class ParsedText:
     pos: tuple[float, float] | None = None
     top: bool = False
     warnings: list[str] = field(default_factory=list)
+    clip: tuple[float, float, float, float] | None = None
+    clip_inverse: bool = False
+    blur: float = 0.0
 
 
 def _style_to_run(style: Style) -> Run:
@@ -690,7 +695,7 @@ def parse_microdvd(text: str) -> tuple[dict[str, Style], list[Event], tuple[int,
 # --------------------------------------------------------------------------- rich text
 _STYLE_TAGS = {'fn', 'fs', 'b', 'i', 'u', 's', 'c', '1c', '2c', '3c', '4c',
                'alpha', '1a', '3a', '4a', 'bord', 'xbord', 'ybord', 'shad',
-               'xshad', 'yshad', 'r'}
+               'xshad', 'yshad', 'r', 'fsp'}
 
 
 def _iter_tags(tagstr: str):
@@ -744,6 +749,9 @@ def parse_event_text(text: str, style: Style, styles: dict[str, Style]) -> Parse
     buf: list[str] = []
     layout_align: int | None = None
     layout_pos: tuple[float, float] | None = None
+    layout_clip: tuple[float, float, float, float] | None = None
+    layout_clip_inverse = False
+    layout_blur = 0.0
     drawing = 0
     ignored: set[str] = set()
 
@@ -838,9 +846,26 @@ def parse_event_text(text: str, style: Style, styles: dict[str, Style]) -> Parse
                         state.outline = max(0, float(a or 0))
                     except ValueError:
                         pass
-                elif name in ('shad', 'xshad', 'yshad'):
+                elif name == 'shad' or name == 'xshad' or name == 'yshad':
                     try:
                         state.shadow = max(0, float(a or 0))
+                    except ValueError:
+                        pass
+                elif name == 'fsp':
+                    try:
+                        state.spacing = float(a or 0)
+                    except ValueError:
+                        pass
+                elif name == 'clip' or name == 'iclip':
+                    nums = re.findall(r'-?\d+(?:\.\d+)?', a)
+                    if len(nums) == 4 and re.fullmatch(r'[\s\d.,\-]+', a):
+                        layout_clip = tuple(float(x) for x in nums)  # type: ignore[assignment]
+                        layout_clip_inverse = (name == 'iclip')
+                    else:
+                        mark('clip')
+                elif name == 'blur' or name == 'be':
+                    try:
+                        layout_blur = max(layout_blur, float(a or 0))
                     except ValueError:
                         pass
                 elif name == 'r':
@@ -855,7 +880,7 @@ def parse_event_text(text: str, style: Style, styles: dict[str, Style]) -> Parse
                         flush()
                         mark('drawing')
                 elif name in ('fad', 'fade', 't', 'clip', 'iclip', 'fr', 'fscx',
-                              'fscy', 'fax', 'fay', 'blur', 'be', 'fe', 'k', 'kf',
+                              'fscy', 'fax', 'fay', 'fe', 'k', 'kf',
                               'ko', 'K', 'org', 'q', 'xbord', 'ybord'):
                     mark(name)
             i = j + 1
@@ -893,7 +918,8 @@ def parse_event_text(text: str, style: Style, styles: dict[str, Style]) -> Parse
     if ignored:
         names = ', '.join(sorted(ignored))
         warnings.append(f'已忽略部分 ASS 特效: {names}')
-    return ParsedText(lines, layout_align, layout_pos, False, warnings)
+    return ParsedText(lines, layout_align, layout_pos, False, warnings,
+                      layout_clip, layout_clip_inverse, layout_blur)
 
 
 # --------------------------------------------------------------------------- layout / render
@@ -917,6 +943,85 @@ class Renderer:
     def _font_size(self, run: Run, sy: float) -> int:
         return max(1, int(round(run.fontsize * sy)))
 
+    def _run_width(self, run: Run, font, sx: float) -> float:
+        try:
+            if run.spacing:
+                return (sum(float(font.getlength(ch)) for ch in run.text) +
+                        max(0, len(run.text) - 1) * run.spacing * sx)
+            return float(font.getlength(run.text))
+        except Exception:
+            return len(run.text) * run.fontsize * 0.5
+
+    def _wrap_lines(self, lines: list[list[Run]], max_width: float,
+                    sx: float, sy: float) -> list[list[Run]]:
+        """Wrap lines to the available width (CJK characters count singly)."""
+        if max_width <= 0:
+            return lines
+        token_re = re.compile(r'\s+|[A-Za-z0-9]+(?:[._\'’-][A-Za-z0-9]+)*|.', re.S)
+        out: list[list[Run]] = []
+
+        def same_style(a: Run, b: Run) -> bool:
+            return (a.fontname, a.fontsize, a.bold, a.italic, a.underline,
+                    a.strikeout, a.primary, a.outline_color, a.shadow_color,
+                    a.outline, a.shadow, a.spacing) == (
+                    b.fontname, b.fontsize, b.bold, b.italic, b.underline,
+                    b.strikeout, b.primary, b.outline_color, b.shadow_color,
+                    b.outline, b.shadow, b.spacing)
+
+        for line in lines:
+            current: list[Run] = []
+            current_w = 0.0
+
+            def flush() -> None:
+                nonlocal current, current_w
+                if current:
+                    out.append(current)
+                current = []
+                current_w = 0.0
+
+            def append_token(run: Run, text: str, font) -> bool:
+                nonlocal current_w
+                if not text:
+                    return True
+                if text.isspace() and not current:
+                    return True
+                if current and same_style(current[-1], run):
+                    last = current[-1]
+                    old_w = self._run_width(last, font, sx)
+                    merged = replace(last, text=last.text + text)
+                    new_w = self._run_width(merged, font, sx)
+                    if current and current_w + (new_w - old_w) > max_width:
+                        return False
+                    current[-1] = merged
+                    current_w += new_w - old_w
+                    return True
+                tok = replace(run, text=text)
+                w = self._run_width(tok, font, sx)
+                if current and current_w + w > max_width:
+                    return False
+                current.append(tok)
+                current_w += w
+                return True
+
+            for run in line:
+                font, _fb, _fi = get_font(run.fontname, self._font_size(run, sy),
+                                          run.bold, run.italic, self.warnings)
+                for token in token_re.findall(run.text):
+                    if token.isspace() and not current:
+                        continue
+                    if append_token(run, token, font):
+                        continue
+                    flush()
+                    if token.isspace():
+                        continue
+                    if not append_token(run, token, font):
+                        for ch in token:
+                            if not append_token(run, ch, font):
+                                flush()
+                                append_token(run, ch, font)
+            flush()
+        return [ln for ln in out if ln]
+
     def _measure(self, lines: list[list[Run]], sx: float, sy: float) -> list[LineLayout]:
         out: list[LineLayout] = []
         for runs in lines:
@@ -930,11 +1035,7 @@ class Renderer:
                                          run.bold, run.italic, self.warnings)
                 fonts.append(font)
                 fakes.append(fb)
-                try:
-                    w = float(font.getlength(run.text))
-                except Exception:
-                    w = len(run.text) * run.fontsize * 0.5
-                widths.append(w)
+                widths.append(self._run_width(run, font, sx))
                 try:
                     asc, desc = font.getmetrics()
                 except Exception:
@@ -978,10 +1079,14 @@ class Renderer:
         return x, y, h, v, ml, mv
 
     def render(self, parsed: ParsedText, style: Style, event: Event,
-               render_w: int, render_h: int) -> tuple[Image.Image, int, int] | None:
+               render_w: int, render_h: int, wrap: bool = False,
+               max_width: float | None = None) -> tuple[Image.Image, int, int] | None:
         sx = render_w / float(self.play_x or render_w)
         sy = render_h / float(self.play_y or render_h)
-        measured = [m for m in self._measure(parsed.lines, sx, sy) if m.runs]
+        lines = parsed.lines
+        if wrap and max_width and max_width > 0:
+            lines = self._wrap_lines(lines, max_width, sx, sy)
+        measured = [m for m in self._measure(lines, sx, sy) if m.runs]
         if not measured:
             return None
         block_w = max(m.width for m in measured)
@@ -994,6 +1099,8 @@ class Renderer:
         max_shadow = max((r.shadow for r in (run for line in measured for run in line.runs)),
                          default=0) * sy
         pad = int(math.ceil(max(max_outline, max_shadow))) + 3
+        if parsed.blur > 0:
+            pad += int(math.ceil(parsed.blur * sy * 2))
         img_w = max(1, int(math.ceil(block_w)) + pad * 2)
         img_h = max(1, int(math.ceil(block_h)) + pad * 2)
         img = Image.new('RGBA', (img_w, img_h), CLEAR)
@@ -1016,9 +1123,58 @@ class Renderer:
                 self._draw_run(draw, run, font, fake, tx, base_y, sx, sy)
                 x_line += w
             y_line += line.height + 4.0 * sy
+        if parsed.blur > 0:
+            try:
+                # blur only the alpha channel: blurring straight RGBA would
+                # blend the transparent black background into the glyph edges
+                alpha = img.getchannel('A').filter(
+                    ImageFilter.GaussianBlur(parsed.blur * sy))
+                img.putalpha(alpha)
+            except Exception:
+                pass
         x_out = int(round(x)) - pad
         y_out = int(round(y)) - pad
-        return img, x_out, y_out
+        clipped = self._apply_clip(img, x_out, y_out, parsed, sx, sy)
+        if clipped is None:
+            return None
+        return clipped
+
+    def _apply_clip(self, img: Image.Image, x_out: int, y_out: int,
+                    parsed: ParsedText, sx: float, sy: float):
+        clip = parsed.clip
+        if not clip:
+            return img, x_out, y_out
+        x1, y1, x2, y2 = clip
+        if x1 > x2:
+            x1, x2 = x2, x1
+        if y1 > y2:
+            y1, y2 = y2, y1
+        left = int(math.floor(x1 * sx - x_out))
+        top = int(math.floor(y1 * sy - y_out))
+        right = int(math.ceil(x2 * sx - x_out))
+        bottom = int(math.ceil(y2 * sy - y_out))
+        w, h = img.size
+        if parsed.clip_inverse:
+            mask = Image.new('L', (w, h), 255)
+            md = ImageDraw.Draw(mask)
+            l, t = max(0, left), max(0, top)
+            r, b = min(w, right), min(h, bottom)
+            if r > l and b > t:
+                md.rectangle((l, t, r - 1, b - 1), fill=0)
+            img.putalpha(ImageChops.multiply(img.getchannel('A'), mask))
+            bbox = img.getbbox()
+            if bbox is None:
+                return None
+            img = img.crop(bbox)
+            x_out += bbox[0]
+            y_out += bbox[1]
+            return img, x_out, y_out
+        l, t = max(0, left), max(0, top)
+        r, b = min(w, right), min(h, bottom)
+        if r <= l or b <= t:
+            return None
+        img = img.crop((l, t, r, b))
+        return img, x_out + l, y_out + t
 
     def _draw_run(self, draw, run: Run, font, fake_bold: bool,
                   x: float, baseline: float, sx: float, sy: float) -> None:
@@ -1029,29 +1185,49 @@ class Renderer:
         shadow_col = run.shadow_color
         draw_x = x
         draw_y = baseline
+        spacing = run.spacing * sx
         try:
-            if shadow > 0:
-                draw.text((draw_x + shadow, draw_y + shadow), run.text, font=font,
-                          anchor='ls', fill=shadow_col)
-            if fake_bold:
-                for off in (0.0, 1.0):
-                    draw.text((draw_x + off, draw_y), run.text, font=font, anchor='ls',
-                              fill=primary, stroke_width=outline,
-                              stroke_fill=outline_col)
+            total_w = self._run_width(run, font, sx)
+            if spacing and run.text:
+                # letter-spacing: draw one glyph at a time
+                def paint(text: str, px: float, fill, stroke_w: int, stroke_col) -> None:
+                    cx = px
+                    for ch in text:
+                        draw.text((cx, draw_y), ch, font=font, anchor='ls',
+                                  fill=fill, stroke_width=stroke_w,
+                                  stroke_fill=stroke_col)
+                        cx += font.getlength(ch) + spacing
+
+                if shadow > 0:
+                    paint(run.text, draw_x + shadow, shadow_col, 0, shadow_col)
+                if fake_bold:
+                    paint(run.text, draw_x, primary, outline, outline_col)
+                    paint(run.text, draw_x + 1, primary, outline, outline_col)
+                else:
+                    paint(run.text, draw_x, primary, outline, outline_col)
             else:
-                draw.text((draw_x, draw_y), run.text, font=font, anchor='ls',
-                          fill=primary, stroke_width=outline, stroke_fill=outline_col)
+                if shadow > 0:
+                    draw.text((draw_x + shadow, draw_y + shadow), run.text, font=font,
+                              anchor='ls', fill=shadow_col)
+                if fake_bold:
+                    for off in (0.0, 1.0):
+                        draw.text((draw_x + off, draw_y), run.text, font=font, anchor='ls',
+                                  fill=primary, stroke_width=outline,
+                                  stroke_fill=outline_col)
+                else:
+                    draw.text((draw_x, draw_y), run.text, font=font, anchor='ls',
+                              fill=primary, stroke_width=outline, stroke_fill=outline_col)
             try:
                 ascent, desc = font.getmetrics()
             except Exception:
                 ascent, desc = int(run.fontsize), 0
             if run.underline:
                 uy = draw_y + max(1, int(desc * 0.2))
-                draw.line((draw_x, uy, draw_x + font.getlength(run.text), uy),
+                draw.line((draw_x, uy, draw_x + total_w, uy),
                           fill=primary, width=max(1, int(run.fontsize * sy / 18)))
             if run.strikeout:
                 syy = draw_y - ascent * 0.35
-                draw.line((draw_x, syy, draw_x + font.getlength(run.text), syy),
+                draw.line((draw_x, syy, draw_x + total_w, syy),
                           fill=primary, width=max(1, int(run.fontsize * sy / 18)))
         except Exception:
             pass
@@ -1221,8 +1397,16 @@ class TextSubtitle:
             for w in parsed.warnings:
                 if w not in self.warnings:
                     self.warnings.append(w)
-        return self.renderer.render(parsed, style, event,
-                                    self.render_size[0], self.render_size[1])
+        render_w, render_h = self.render_size
+        sx = render_w / float(self.play_res[0] or render_w)
+        max_width = render_w - (style.margin_l + style.margin_r) * sx
+        if self.format not in ('ASS/SSA',):
+            max_width = min(max_width, render_w * 0.92)
+        if max_width < render_w * 0.35:
+            max_width = render_w * 0.9
+        return self.renderer.render(parsed, style, event, render_w, render_h,
+                                    wrap=(parsed.pos is None),
+                                    max_width=max_width)
 
     def _render_unit(self, unit: RenderUnit):
         parts = []

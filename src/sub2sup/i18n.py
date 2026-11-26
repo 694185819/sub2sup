@@ -261,9 +261,11 @@ HELP_ZH = r"""字幕转 SUP 工具 使用说明
 
 九、文本字幕（ASS / SSA / SRT / VTT / MicroDVD）
   * 支持常用 ASS 样式：字体、字号、粗体/斜体/下划线/删除线、主色/描边色/阴影色、
-    描边宽度、阴影、对齐、边距、\pos / \an、\N 换行、\h 空格和内联颜色等。
+    描边宽度、阴影、对齐、边距、字距 Spacing / \fsp、\pos / \an、\N 换行、
+    \h 空格、\clip / \iclip 矩形裁剪、\blur / \be 边缘模糊和内联颜色等。
+  * SRT / VTT / MicroDVD 长行会按画面宽度自动换行（中文按字、英文按单词）。
   * 文本字幕是重新渲染，不是无损转换；字体来自系统，找不到时会回退。
-  * 不支持绘图命令 \p、动画/移动 \move / \t、旋转、裁剪、卡拉OK变色等，
+  * 不支持绘图命令 \p、动画/移动 \move / \t、旋转、卡拉OK变色等，
     遇到时会在提示栏说明并忽略。
   * 重叠的字幕会按时间区间合成为同一画面。
   * 选择 4K PGS 时按 3840×2160 原生重新渲染文字，而不是把 1080p 位图放大。
@@ -343,12 +345,15 @@ HELP_EN = r"""Sub2Sup — Help
 
 9. Text subtitles (ASS / SSA / SRT / VTT / MicroDVD)
   * Common ASS styles are supported: font, size, bold/italic/underline/
-    strikeout, primary/outline/back colours, outline width, shadow,
-    alignment, margins, \pos / \an, \N, \h and inline colour tags.
+    strikeout, primary/outline/back colours, outline width, shadow, letter
+    spacing (Spacing / \fsp), alignment, margins, \pos / \an, \N, \h,
+    rectangular \clip / \iclip, \blur / \be and inline colour tags.
+  * SRT / VTT / MicroDVD long lines wrap automatically to the frame width
+    (CJK per character, Latin per word).
   * Text subtitles are re-rendered, not lossless. System fonts are used and
     a fallback font is chosen when a font is missing.
-  * Drawings (\p), animation (\move / \t), rotation, clipping and karaoke
-    colour changes are ignored with a warning.
+  * Drawings (\p), animation (\move / \t), rotation and karaoke colour
+    changes are ignored with a warning.
   * Overlapping events are composited per time interval.
   * 4K PGS re-renders text natively at 3840×2160 instead of upscaling 1080p.
 """
