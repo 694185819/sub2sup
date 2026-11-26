@@ -9,8 +9,10 @@ The PGS RLE format (as implemented by FFmpeg's pgssub decoder) is:
         flags & 0x80            explicit colour byte follows
         run length 0            -> new line
 
-We map the four DVD pixel values (0..3) to PGS palette indices 1..4 so that no
-pixel of value 0 is ever emitted as a bare RLE byte (0x00 is the escape).
+We map bitmap palette values to PGS palette indices 1..255 so that no pixel
+value 0 is ever emitted as a bare RLE byte (0x00 is the escape).  Bitmap
+subtitles normally use four values; text subtitles can use up to 255 palette
+entries.
 """
 from __future__ import annotations
 
@@ -141,8 +143,8 @@ class PgsItem:
     y: int
     w: int
     h: int
-    rows: list[bytearray]      # palette index 0..3
-    colors: list[tuple[int, int, int, int]]  # RGBA for 0..3
+    rows: list[bytearray]      # palette index 0..254
+    colors: list[tuple[int, int, int, int]]  # RGBA for palette indices 0..N-1
 
 
 def _u16(v: int) -> bytes:
@@ -164,7 +166,7 @@ def encode_rle(rows: list[bytearray], w: int, h: int) -> bytes:
             while j < w and row[j] == c:
                 j += 1
             run = j - x
-            code = c + 1  # PGS palette indices 1..4
+            code = c + 1  # PGS palette indices 1..255
             if run == 1:
                 out.append(code)
             elif run <= 3:

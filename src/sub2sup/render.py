@@ -48,7 +48,10 @@ def thumb(rows: list[bytearray], colors: list[tuple[int, int, int, int]],
         base = (y * tw) * 4
         for x in range(tw):
             sx = min(w - 1, int(x * w / tw))
-            r, g, b = prem[row[sx] & 3]
+            idx = row[sx]
+            if idx >= len(prem):
+                idx = 0
+            r, g, b = prem[idx]
             o = base + x * 4
             buf[o] = r
             buf[o + 1] = g
@@ -81,7 +84,10 @@ def preview(rows: list[bytearray], colors: list[tuple[int, int, int, int]],
         base = ((dy + yy) * out_w + dx) * 4
         for xx in range(dw):
             sx = min(w - 1, int(xx * w / dw))
-            r, g, b = prem[row[sx] & 3]
+            idx = row[sx]
+            if idx >= len(prem):
+                idx = 0
+            r, g, b = prem[idx]
             o = base + xx * 4
             buf[o] = r
             buf[o + 1] = g

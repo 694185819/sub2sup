@@ -20,3 +20,5 @@ screenshot.png
 !demo/
 !demo/*.idx
 !demo/*.sub
+!demo/*.ass
+!demo/*.srt

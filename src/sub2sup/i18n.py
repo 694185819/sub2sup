@@ -68,6 +68,13 @@ EN: dict[str, str] = {
         '\n\nYou can also drop a .idx / .sub file into this window',
     '拖入的文件不是字幕': 'Not a subtitle file',
     '请拖入 .idx 或 .sub 文件。': 'Please drop a .idx or .sub file.',
+    '请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt 文件。':
+        'Please drop a .idx / .sub / .ass / .ssa / .srt / .vtt file.',
+    '打开字幕文件（VobSub / ASS / SRT / VTT）':
+        'Open subtitle (VobSub / ASS / SRT / VTT)',
+    '字幕文件': 'Subtitle files',
+    '文本字幕将按目标分辨率重新渲染（4K 为原生渲染，不是放大）。':
+        'Text subtitles are re-rendered at the target resolution (native 4K, not upscaled).',
     '◀ 上一段': '◀ Previous',
     '下一段 ▶': 'Next ▶',
     '删除此段 (Space)': 'Remove this segment (Space)',
@@ -198,12 +205,14 @@ EN: dict[str, str] = {
     '取消下载': 'Cancel download',
 }
 
-HELP_ZH = """字幕转 SUP 工具 使用说明
+HELP_ZH = r"""字幕转 SUP 工具 使用说明
 
 一、打开字幕
-  1. 点「打开字幕文件…」选择 .idx（程序会自动找同名 .sub）。
-  2. 也可以直接把 .idx / .sub 拖进程序窗口，或拖到 Sub2Sup.exe 图标上。
-  3. 单独一个 .sub 也能打开（缺调色板信息，使用经典 VobSub 默认调色板）。
+  1. 点「打开字幕文件…」选择 .idx（程序会自动找同名 .sub），或文本字幕
+     .ass / .ssa / .srt / .vtt / MicroDVD .sub。
+  2. 也可以直接把字幕文件拖进程序窗口，或拖到 Sub2Sup.exe 图标上。
+  3. 单独一个 VobSub `.sub` 也能打开（缺调色板信息，使用经典默认调色板）。
+  4. 文本字幕会按系统字体重新渲染成位图（非无损），仍可逐段预览、删除、导出。
 
 二、预览与删除段落
   * 左侧列表显示每段的缩略图、开始/结束时间、位置和尺寸；“位置”指该段在原片
@@ -249,17 +258,29 @@ HELP_ZH = """字幕转 SUP 工具 使用说明
   * 更新窗口可查看更新说明、打开 Release 页面，或直接「下载并安装」。
   * exe 版下载完成后可「立即安装并重启」：程序退出后自动替换并启动新版；
     源码运行时只下载并打开所在文件夹。
+
+九、文本字幕（ASS / SSA / SRT / VTT / MicroDVD）
+  * 支持常用 ASS 样式：字体、字号、粗体/斜体/下划线/删除线、主色/描边色/阴影色、
+    描边宽度、阴影、对齐、边距、\pos / \an、\N 换行、\h 空格和内联颜色等。
+  * 文本字幕是重新渲染，不是无损转换；字体来自系统，找不到时会回退。
+  * 不支持绘图命令 \p、动画/移动 \move / \t、旋转、裁剪、卡拉OK变色等，
+    遇到时会在提示栏说明并忽略。
+  * 重叠的字幕会按时间区间合成为同一画面。
+  * 选择 4K PGS 时按 3840×2160 原生重新渲染文字，而不是把 1080p 位图放大。
 """
 
-HELP_EN = """Sub2Sup — Help
+HELP_EN = r"""Sub2Sup — Help
 
 1. Opening a subtitle
   1. Click "Open subtitle file…" and choose the .idx file (the matching .sub is
-     found automatically).
-  2. Alternatively, drag a .idx / .sub file into this window, or onto the
+     found automatically), or a text subtitle .ass / .ssa / .srt / .vtt /
+     MicroDVD .sub.
+  2. Alternatively, drag a subtitle file into this window, or onto the
      Sub2Sup.exe icon.
-  3. A lone .sub can be opened too (it has no palette; the classic VobSub
-     default palette is used).
+  3. A lone VobSub .sub can also be opened (it has no palette; the classic
+     VobSub default palette is used).
+  4. Text subtitles are re-rendered with system fonts (not lossless), but they
+     are still previewed/deleted/exported segment by segment.
 
 2. Preview and delete segments
   * The list shows a thumbnail, start/end time, position and size for every
@@ -319,6 +340,17 @@ HELP_EN = """Sub2Sup — Help
   * In the exe build, "Install and restart" replaces the program after it
     exits and launches the new one; when running from source it only
     downloads the file and opens its folder.
+
+9. Text subtitles (ASS / SSA / SRT / VTT / MicroDVD)
+  * Common ASS styles are supported: font, size, bold/italic/underline/
+    strikeout, primary/outline/back colours, outline width, shadow,
+    alignment, margins, \pos / \an, \N, \h and inline colour tags.
+  * Text subtitles are re-rendered, not lossless. System fonts are used and
+    a fallback font is chosen when a font is missing.
+  * Drawings (\p), animation (\move / \t), rotation, clipping and karaoke
+    colour changes are ignored with a warning.
+  * Overlapping events are composited per time interval.
+  * 4K PGS re-renders text natively at 3840×2160 instead of upscaling 1080p.
 """
 
 ABOUT_ZH = (

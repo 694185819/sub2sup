@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import pgs, render, vobsub
+from . import formats, pgs, render, vobsub
 
 
 def parse_index_list(text: str, total: int) -> set[int]:
@@ -58,14 +58,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--verify', action='store_true')
     args = ap.parse_args(argv)
 
-    v = vobsub.VobSub(args.input)
+    v = formats.open_subtitle(args.input)
     track = args.track
     if track is None:
-        track = min(max(0, v.idx.langidx if v.idx else 0), len(v.tracks) - 1)
+        track = min(max(0, getattr(v, 'idx', None).langidx if getattr(v, 'idx', None) else 0),
+                    len(v.tracks) - 1)
     entries = v.iter_entries(track)
     total = len(entries)
     print(f'文件: {v.idx_path or v.sub_path}')
     print(f'轨道: {v.track_names()[track]}  共 {total} 段  源画布: {v.size}')
+    if getattr(v, 'warnings', None):
+        for warning in v.warnings[:3]:
+            print(f'提示: {warning}')
     if args.list:
         for i, e in enumerate(entries):
             print(f'#{i:05d}  {vobsub.ticks_to_time(e.start)}  filepos={e.filepos:#x}')
@@ -104,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sx = canvas[0] / src_canvas[0]
     sy = canvas[1] / src_canvas[1]
+    if getattr(v, 'is_text', False):
+        v.set_render_size(canvas[0], canvas[1])
+        sx = sy = 1.0
     print(f'输出规格: {args.profile}  画布: {canvas}  HDR 峰值Y: {hdr_target}  '
           f'帧率: {args.fps}')
     if (sx, sy) != (1.0, 1.0):

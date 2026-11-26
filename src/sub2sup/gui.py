@@ -23,7 +23,7 @@ except Exception:  # noqa: BLE001 - optional dependency
     DND_FILES = 'DND_Files'
     HAS_DND = False
 
-from . import __version__, i18n, pgs, render, updater, vobsub
+from . import __version__, formats, i18n, pgs, render, updater, vobsub
 from .icon_data import ICON_PNG_B64
 
 T = i18n.T
@@ -144,6 +144,7 @@ class App:
         self._load_gen = 0
         self.update_info = None
         self._update_check_running = False
+        self._is_text = False
         self._build_style()
         self._build_ui()
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
@@ -182,11 +183,12 @@ class App:
         paths = []
         for item in items:
             p = Path(item)
-            if p.suffix.lower() in ('.idx', '.sub'):
+            if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt'):
                 paths.append(p)
         if not paths:
             messagebox.showwarning(T('拖入的文件不是字幕'),
-                                   T('请拖入 .idx 或 .sub 文件。'), parent=self.root)
+                                   T('请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt 文件。'),
+                                   parent=self.root)
             return action
         if self._busy:
             return action
@@ -540,8 +542,9 @@ class App:
     # ------------------------------------------------------------- opening
     def open_dialog(self) -> None:
         path = filedialog.askopenfilename(
-            title=T('打开 VobSub 字幕（.idx 会自动找同名 .sub）'),
-            filetypes=[(T('VobSub 字幕'), '*.idx *.sub'), (T('所有文件'), '*.*')])
+            title=T('打开字幕文件（VobSub / ASS / SRT / VTT）'),
+            filetypes=[(T('字幕文件'), '*.idx *.sub *.ass *.ssa *.srt *.vtt'),
+                       (T('所有文件'), '*.*')])
         if path:
             self.open_path(Path(path))
 
@@ -603,7 +606,7 @@ class App:
     def _load_worker(self, path: Path, gen: int) -> None:
         q = self.load_q
         try:
-            v = vobsub.VobSub(str(path))
+            v = formats.open_subtitle(path)
             track = min(self.track, len(v.tracks) - 1)
             q.put(('meta', gen, v, path, track))
             total = len(v.iter_entries(track))
@@ -636,6 +639,7 @@ class App:
                     self.track = track
                     self.path = path
                     self.canvas_size = v.size
+                    self._is_text = bool(getattr(v, 'is_text', False))
                     self.status_file.configure(text=self._short_path(v.idx_path or v.sub_path))
                     self._update_title()
                     if v.warnings:
@@ -1138,6 +1142,8 @@ class App:
                     note += ' ' + T('当前源画布 {sw}×{sh}，目标 {tw}×{th}，缩放 {sx:.3f}×{sy:.3f}（非整数缩放会有 1px 取整偏差）。').format(
                         sw=source_canvas[0], sh=source_canvas[1], tw=tw, th=th,
                         sx=tw / source_canvas[0], sy=th / source_canvas[1])
+                if getattr(self, '_is_text', False):
+                    note += ' ' + T('文本字幕将按目标分辨率重新渲染（4K 为原生渲染，不是放大）。')
                 note += ' ' + T('UHD 帧率建议 23.976 / 24 / 25 / 50 / 59.94 / 60。')
                 note_var.set(note)
             set_hdr_state()
@@ -1192,11 +1198,15 @@ class App:
 
             def work() -> None:
                 try:
-                    v = vobsub.VobSub(str(self.path))
+                    v = formats.open_subtitle(self.path)
                     entries = v.iter_entries(self.track)
                     indices = [it.index for it in self.items if not it.removed]
-                    sx = canvas[0] / source[0]
-                    sy = canvas[1] / source[1]
+                    if getattr(v, 'is_text', False):
+                        v.set_render_size(canvas[0], canvas[1])
+                        sx = sy = 1.0
+                    else:
+                        sx = canvas[0] / source[0]
+                        sy = canvas[1] / source[1]
                     pgs_items = []
                     for n, i in enumerate(indices):
                         if state['cancel'].is_set():
@@ -1614,7 +1624,7 @@ def main() -> None:
     files = [a for a in args if not a.startswith('-')]
     for a in files:
         p = Path(a)
-        if p.suffix.lower() in ('.idx', '.sub') and p.exists():
+        if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt') and p.exists():
             root.after(250, lambda p=p: app.open_path(p))
             break
     root.mainloop()

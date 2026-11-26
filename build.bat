@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-py -3 -m pip install pyinstaller tkinterdnd2
+py -3 -m pip install pyinstaller tkinterdnd2 pillow
 if errorlevel 1 (
   echo.
   echo pip install failed.
