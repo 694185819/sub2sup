@@ -23,7 +23,7 @@ except Exception:  # noqa: BLE001 - optional dependency
     DND_FILES = 'DND_Files'
     HAS_DND = False
 
-from . import __version__, formats, i18n, pgs, render, updater, vobsub
+from . import __version__, formats, i18n, pgs, render, updater, vsrender, vobsub
 from .icon_data import ICON_PNG_B64
 
 T = i18n.T
@@ -183,11 +183,11 @@ class App:
         paths = []
         for item in items:
             p = Path(item)
-            if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt'):
+            if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt', '.sup'):
                 paths.append(p)
         if not paths:
             messagebox.showwarning(T('拖入的文件不是字幕'),
-                                   T('请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt 文件。'),
+                                   T('请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt / .sup 文件。'),
                                    parent=self.root)
             return action
         if self._busy:
@@ -224,8 +224,10 @@ class App:
 
         menubar = tk.Menu(self.root)
         m_file = tk.Menu(menubar, tearoff=0)
-        m_file.add_command(label=T('打开字幕文件 (idx/sub)…'), accelerator='Ctrl+O',
+        m_file.add_command(label=T('打开字幕文件…'), accelerator='Ctrl+O',
                            command=self.open_dialog)
+        m_file.add_command(label=T('ASS 高级渲染（VSFilter）…'),
+                           command=self.vsrender_dialog)
         m_file.add_command(label=T('导出为 SUP…'), accelerator='Ctrl+E',
                            command=self.export_dialog)
         m_file.add_separator()
@@ -542,8 +544,8 @@ class App:
     # ------------------------------------------------------------- opening
     def open_dialog(self) -> None:
         path = filedialog.askopenfilename(
-            title=T('打开字幕文件（VobSub / ASS / SRT / VTT）'),
-            filetypes=[(T('字幕文件'), '*.idx *.sub *.ass *.ssa *.srt *.vtt'),
+            title=T('打开字幕文件（VobSub / ASS / SRT / VTT / SUP）'),
+            filetypes=[(T('字幕文件'), '*.idx *.sub *.ass *.ssa *.srt *.vtt *.sup'),
                        (T('所有文件'), '*.*')])
         if path:
             self.open_path(Path(path))
@@ -1065,7 +1067,12 @@ class App:
         canvas_cb.grid(row=2, column=1, sticky='w', pady=4)
 
         ttk.Label(form, text='帧率代码：').grid(row=3, column=0, sticky='w', pady=4)
-        fps_var = tk.StringVar(value=fps_all[0])
+        source_fps = getattr(self.v, 'fps', None)
+        default_fps = fps_all[0]
+        if source_fps is not None:
+            default_fps = next((lab for lab, value in pgs.FPS_LABELS
+                                if abs(value - source_fps) < 0.01), fps_all[0])
+        fps_var = tk.StringVar(value=default_fps)
         fps_cb = ttk.Combobox(form, textvariable=fps_var, width=28, state='readonly',
                               values=fps_all)
         fps_cb.grid(row=3, column=1, sticky='w', pady=4)
@@ -1282,6 +1289,202 @@ class App:
         profile_cb.bind('<<ComboboxSelected>>', apply_profile)
         hdr_cb.bind('<<ComboboxSelected>>', set_hdr_state)
         apply_profile()
+        self._localize(dlg)
+
+    # ------------------------------------------------------------- vsfilter
+    def vsrender_dialog(self) -> None:
+        comp = vsrender.detect_components()
+        src_default = ''
+        if self.path and self.path.suffix.lower() in ('.ass', '.ssa'):
+            src_default = str(self.path)
+        dlg = tk.Toplevel(self.root)
+        dlg.title(T('ASS 高级渲染（VSFilter）…'))
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.configure(bg=BG)
+        dlg.resizable(False, False)
+        ttk.Label(dlg, text=T('高级渲染需要 AviSynth + VSFilterMod + avs2bdnxml；输出 1920×1080 SUP，完成后可在本程序预览/删除/导出。'),
+                  style='Hint.TLabel', wraplength=720).pack(anchor='w', padx=18, pady=(16, 6))
+
+        form = ttk.Frame(dlg)
+        form.pack(fill='x', padx=18)
+        src_var = tk.StringVar(value=src_default)
+        out_default = str(Path(src_default).with_suffix('.vs.sup')) if src_default else ''
+        out_var = tk.StringVar(value=out_default)
+        avs_var = tk.StringVar(value=comp.get('avs2bdnxml', ''))
+        vf_var = tk.StringVar(value=comp.get('vsfilter', ''))
+        fps_labels = [lab for lab, fps in pgs.FPS_LABELS if fps in (23.976, 24.0, 25.0, 29.97, 50.0, 59.94)]
+        fps_var = tk.StringVar(value=fps_labels[0])
+
+        def row(r: int, label: str, var: tk.StringVar, browse) -> None:
+            ttk.Label(form, text=label).grid(row=r, column=0, sticky='w', pady=4)
+            ttk.Entry(form, textvariable=var, width=66).grid(row=r, column=1, sticky='we', pady=4)
+            ttk.Button(form, text='浏览…', command=browse).grid(row=r, column=2, padx=(6, 0))
+
+        def browse_src() -> None:
+            p = filedialog.askopenfilename(
+                title=T('选择 ASS/SSA 字幕'),
+                filetypes=[(T('ASS/SSA 字幕'), '*.ass *.ssa'), (T('所有文件'), '*.*')])
+            if p:
+                src_var.set(p)
+                if not out_var.get():
+                    out_var.set(str(Path(p).with_suffix('.vs.sup')))
+
+        def browse_out() -> None:
+            p = filedialog.asksaveasfilename(
+                title=T('选择输出 SUP'), defaultextension='.sup',
+                filetypes=[(T('Blu-ray 字幕'), '*.sup')],
+                initialfile=Path(out_var.get()).name if out_var.get() else 'output.vs.sup')
+            if p:
+                out_var.set(p)
+
+        def browse_avs() -> None:
+            p = filedialog.askopenfilename(
+                title=T('选择 avs2bdnxml.exe'),
+                filetypes=[(T('avs2bdnxml'), 'avs2bdnxml.exe'), (T('所有文件'), '*.*')])
+            if p:
+                avs_var.set(p)
+
+        def browse_vf() -> None:
+            p = filedialog.askopenfilename(
+                title=T('选择 VSFilterMod.dll'),
+                filetypes=[(T('VSFilterMod'), 'VSFilterMod.dll'), (T('所有文件'), '*.*')])
+            if p:
+                vf_var.set(p)
+
+        row(0, T('源 ASS/SSA：'), src_var, browse_src)
+        row(1, T('输出 SUP：'), out_var, browse_out)
+        row(2, T('avs2bdnxml.exe：'), avs_var, browse_avs)
+        row(3, T('VSFilterMod.dll：'), vf_var, browse_vf)
+        ttk.Label(form, text='帧率：').grid(row=4, column=0, sticky='w', pady=4)
+        fps_cb = ttk.Combobox(form, textvariable=fps_var, width=24, state='readonly',
+                              values=fps_labels)
+        fps_cb.grid(row=4, column=1, sticky='w', pady=4)
+        det = ttk.Label(dlg, text='', style='Hint.TLabel')
+        det.pack(anchor='w', padx=18, pady=(4, 0))
+        det.configure(text=T('检测结果：{avs}').format(
+            avs=T('AviSynth 已安装') if comp.get('avisynth') else T('AviSynth 未安装')))
+
+        def auto_detect() -> None:
+            c = vsrender.detect_components()
+            if c.get('avs2bdnxml'):
+                avs_var.set(c['avs2bdnxml'])
+            if c.get('vsfilter'):
+                vf_var.set(c['vsfilter'])
+            det.configure(text=T('检测结果：{avs}').format(
+                avs=T('AviSynth 已安装') if c.get('avisynth') else T('AviSynth 未安装')))
+            if not c.get('found'):
+                messagebox.showwarning(T('自动检测'),
+                                       T('未找到所需组件：需要 AviSynth、VSFilterMod.dll 和 avs2bdnxml.exe。'),
+                                       parent=dlg)
+
+        ttk.Button(form, text=T('自动检测'), command=auto_detect).grid(
+            row=5, column=1, sticky='w', pady=(6, 0))
+        pb = ttk.Progressbar(dlg, mode='determinate', maximum=100, length=720)
+        pb.pack(fill='x', padx=18, pady=(10, 4))
+        status = ttk.Label(dlg, text='', style='Hint.TLabel')
+        status.pack(anchor='w', padx=18)
+        btns = ttk.Frame(dlg, padding=(18, 10))
+        btns.pack(fill='x', side='bottom')
+        state = {'running': False, 'cancel': threading.Event()}
+
+        def close() -> None:
+            state['cancel'].set()
+            dlg.destroy()
+
+        def start() -> None:
+            if state['running']:
+                return
+            try:
+                src = Path(src_var.get()).expanduser()
+                out = Path(out_var.get()).expanduser()
+                if src.suffix.lower() not in ('.ass', '.ssa') or not src.is_file():
+                    raise ValueError('请选择有效的 ASS/SSA 文件')
+                if out.suffix.lower() != '.sup':
+                    raise ValueError('输出文件必须以 .sup 结尾')
+                if not Path(avs_var.get()).is_file():
+                    raise ValueError('avs2bdnxml.exe 路径无效')
+                if not Path(vf_var.get()).is_file():
+                    raise ValueError('VSFilterMod.dll 路径无效')
+                fps = dict(pgs.FPS_LABELS)[fps_var.get()]
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror(T('参数错误'), str(exc), parent=dlg)
+                return
+            if out.exists() and not messagebox.askyesno(
+                    T('覆盖文件'), T('文件已存在：\n{path}\n\n是否覆盖？').format(path=out), parent=dlg):
+                return
+            avs_path = avs_var.get()
+            vf_path = vf_var.get()
+            vsrender.save_components(avs_path, vf_path)
+            state['running'] = True
+            state['cancel'].clear()
+            start_btn.configure(state='disabled')
+            pb['value'] = 0
+            status.configure(text=T('渲染中…'))
+            q = queue.Queue()
+
+            def work() -> None:
+                try:
+                    result = vsrender.render_ass(
+                        str(src), str(out), avs_path, vf_path, fps=fps,
+                        progress=lambda d, t: q.put(('p', d, t)),
+                        cancel=state['cancel'].is_set,
+                        log=lambda s: q.put(('log', s)))
+                    q.put(('done', out, result))
+                except Exception as exc:  # noqa: BLE001
+                    q.put(('err', exc))
+
+            def poll() -> None:
+                try:
+                    while True:
+                        msg = q.get_nowait()
+                        if msg[0] == 'p':
+                            done, total = msg[1], msg[2]
+                            if total:
+                                pb['value'] = done * 100 / total
+                            status.configure(text=T('渲染进度：{done}/{total}').format(
+                                done=done, total=total))
+                        elif msg[0] == 'log':
+                            text = str(msg[1]).strip().splitlines()
+                            if text:
+                                status.configure(text=text[-1][:120])
+                        elif msg[0] == 'done':
+                            out_path = msg[1]
+                            info = msg[2]
+                            dlg.grab_release()
+                            dlg.destroy()
+                            if messagebox.askyesno(
+                                    T('ASS 高级渲染（VSFilter）…'),
+                                    T('高级渲染完成：{count} 段。是否打开生成的 SUP？').format(
+                                        count=info.get('entries', 0)), parent=self.root):
+                                self.open_path(out_path)
+                            return
+                        elif msg[0] == 'err':
+                            err = msg[1]
+                            state['running'] = False
+                            start_btn.configure(state='normal')
+                            if '已取消' in str(err):
+                                status.configure(text=T('高级渲染已取消'))
+                                pb['value'] = 0
+                            else:
+                                messagebox.showerror(T('高级渲染失败：{error}').format(error=err),
+                                                     str(err), parent=dlg)
+                            return
+                except queue.Empty:
+                    pass
+                try:
+                    if dlg.winfo_exists():
+                        dlg.after(120, poll)
+                except tk.TclError:
+                    pass
+
+            threading.Thread(target=work, daemon=True).start()
+            dlg.after(120, poll)
+
+        start_btn = ttk.Button(btns, text=T('开始渲染'), command=start)
+        start_btn.pack(side='right')
+        ttk.Button(btns, text=T('取消'), command=close).pack(side='right', padx=(0, 8))
+        dlg.protocol('WM_DELETE_WINDOW', close)
         self._localize(dlg)
 
     def _browse_out(self, var: tk.StringVar) -> None:
@@ -1624,7 +1827,7 @@ def main() -> None:
     files = [a for a in args if not a.startswith('-')]
     for a in files:
         p = Path(a)
-        if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt') and p.exists():
+        if p.suffix.lower() in ('.idx', '.sub', '.ass', '.ssa', '.srt', '.vtt', '.sup') and p.exists():
             root.after(250, lambda p=p: app.open_path(p))
             break
     root.mainloop()

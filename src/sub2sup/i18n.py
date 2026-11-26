@@ -70,8 +70,10 @@ EN: dict[str, str] = {
     '请拖入 .idx 或 .sub 文件。': 'Please drop a .idx or .sub file.',
     '请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt 文件。':
         'Please drop a .idx / .sub / .ass / .ssa / .srt / .vtt file.',
-    '打开字幕文件（VobSub / ASS / SRT / VTT）':
-        'Open subtitle (VobSub / ASS / SRT / VTT)',
+    '请拖入 .idx / .sub / .ass / .ssa / .srt / .vtt / .sup 文件。':
+        'Please drop a .idx / .sub / .ass / .ssa / .srt / .vtt / .sup file.',
+    '打开字幕文件（VobSub / ASS / SRT / VTT / SUP）':
+        'Open subtitle (VobSub / ASS / SRT / VTT / SUP)',
     '字幕文件': 'Subtitle files',
     '文本字幕将按目标分辨率重新渲染（4K 为原生渲染，不是放大）。':
         'Text subtitles are re-rendered at the target resolution (native 4K, not upscaled).',
@@ -203,16 +205,52 @@ EN: dict[str, str] = {
         'The updater will replace this program after it exits and restart it. Continue?',
     '已取消下载': 'Download cancelled',
     '取消下载': 'Cancel download',
+    # VSFilter advanced render / SUP input
+    'ASS 高级渲染（VSFilter）…': 'Advanced ASS render (VSFilter)…',
+    '高级渲染需要 AviSynth + VSFilterMod + avs2bdnxml；输出 1920×1080 SUP，完成后可在本程序预览/删除/导出。':
+        'Advanced rendering needs AviSynth + VSFilterMod + avs2bdnxml. It outputs a '
+        '1920×1080 SUP which you can preview/delete/export in this app.',
+    '源 ASS/SSA：': 'Source ASS/SSA: ',
+    '输出 SUP：': 'Output SUP: ',
+    'avs2bdnxml.exe：': 'avs2bdnxml.exe: ',
+    'VSFilterMod.dll：': 'VSFilterMod.dll: ',
+    '自动检测': 'Auto-detect',
+    '开始渲染': 'Start rendering',
+    '渲染中…': 'Rendering…',
+    '取消渲染': 'Cancel render',
+    '选择 ASS/SSA 字幕': 'Choose ASS/SSA subtitle',
+    '选择输出 SUP': 'Choose output SUP',
+    '选择 avs2bdnxml.exe': 'Choose avs2bdnxml.exe',
+    '选择 VSFilterMod.dll': 'Choose VSFilterMod.dll',
+    '未找到所需组件：需要 AviSynth、VSFilterMod.dll 和 avs2bdnxml.exe。':
+        'Required components not found: AviSynth, VSFilterMod.dll and avs2bdnxml.exe.',
+    '检测结果：{avs}': 'Detect result: {avs}',
+    'AviSynth 已安装': 'AviSynth installed',
+    'AviSynth 未安装': 'AviSynth not installed',
+    '高级渲染完成：{count} 段。是否打开生成的 SUP？':
+        'Advanced render complete: {count} segments. Open the generated SUP?',
+    '帧率：': 'Frame rate: ',
+    '高级渲染失败：{error}': 'Advanced render failed: {error}',
+    '高级渲染失败': 'Advanced render failed',
+    'SUP 字幕': 'PGS subtitle',
+    'SUP 输入：可直接预览、删除、重新导出 PGS 字幕。':
+        'SUP input: preview, delete and re-export PGS subtitles directly.',
+    '高级渲染已取消': 'Advanced render cancelled',
+    '渲染进度：{done}/{total}': 'Render progress: {done}/{total}',
+    '打开 SUP 字幕…': 'Open SUP subtitle…',
+    'SUP 输入：可直接预览、删除、重新导出 PGS 字幕。':
+        'SUP input: preview, delete and re-export PGS subtitles directly.',
 }
 
 HELP_ZH = r"""字幕转 SUP 工具 使用说明
 
 一、打开字幕
   1. 点「打开字幕文件…」选择 .idx（程序会自动找同名 .sub），或文本字幕
-     .ass / .ssa / .srt / .vtt / MicroDVD .sub。
+     .ass / .ssa / .srt / .vtt / MicroDVD .sub，也可以直接打开 PGS .sup。
   2. 也可以直接把字幕文件拖进程序窗口，或拖到 Sub2Sup.exe 图标上。
   3. 单独一个 VobSub `.sub` 也能打开（缺调色板信息，使用经典默认调色板）。
   4. 文本字幕会按系统字体重新渲染成位图（非无损），仍可逐段预览、删除、导出。
+  5. SUP 输入按位图逐段读取，可预览、删除、重新导出。
 
 二、预览与删除段落
   * 左侧列表显示每段的缩略图、开始/结束时间、位置和尺寸；“位置”指该段在原片
@@ -269,6 +307,15 @@ HELP_ZH = r"""字幕转 SUP 工具 使用说明
     遇到时会在提示栏说明并忽略。
   * 重叠的字幕会按时间区间合成为同一画面。
   * 选择 4K PGS 时按 3840×2160 原生重新渲染文字，而不是把 1080p 位图放大。
+
+十、高级渲染（VSFilter，可选）
+  * 内置渲染器不支持 \p 绘图、\move / \t 动画、旋转、卡拉OK变色等复杂特效。
+  * 可用「文件 → ASS 高级渲染（VSFilter）…」调用本机
+    easyavs2bdnxml + VSFilterMod + AviSynth，把 ASS 渲染成 1920×1080 SUP。
+  * 需要 AviSynth；点击「自动检测」或手动指定 avs2bdnxml.exe 和
+    VSFilterMod.dll，路径会记住。
+  * 渲染完成后会自动打开生成的 SUP，可继续逐段预览、删除、导出。
+  * 这是可选外部依赖；默认内置渲染仍然开箱即用。
 """
 
 HELP_EN = r"""Sub2Sup — Help
@@ -276,13 +323,14 @@ HELP_EN = r"""Sub2Sup — Help
 1. Opening a subtitle
   1. Click "Open subtitle file…" and choose the .idx file (the matching .sub is
      found automatically), or a text subtitle .ass / .ssa / .srt / .vtt /
-     MicroDVD .sub.
+     MicroDVD .sub, or a PGS .sup.
   2. Alternatively, drag a subtitle file into this window, or onto the
      Sub2Sup.exe icon.
   3. A lone VobSub .sub can also be opened (it has no palette; the classic
      VobSub default palette is used).
   4. Text subtitles are re-rendered with system fonts (not lossless), but they
      are still previewed/deleted/exported segment by segment.
+  5. SUP input is read as bitmaps and can be previewed, deleted and re-exported.
 
 2. Preview and delete segments
   * The list shows a thumbnail, start/end time, position and size for every
@@ -356,6 +404,19 @@ HELP_EN = r"""Sub2Sup — Help
     changes are ignored with a warning.
   * Overlapping events are composited per time interval.
   * 4K PGS re-renders text natively at 3840×2160 instead of upscaling 1080p.
+
+10. Advanced rendering (VSFilter, optional)
+  * The built-in renderer does not support \p drawings, \move / \t animation,
+    rotation or karaoke colour changes.
+  * Use "File -> Advanced ASS render (VSFilter)…" to call the local
+    easyavs2bdnxml + VSFilterMod + AviSynth and render the ASS to a
+    1920×1080 SUP.
+  * AviSynth is required. Click "Auto-detect" or specify avs2bdnxml.exe and
+    VSFilterMod.dll; the paths are remembered.
+  * The generated SUP is opened automatically and can be previewed, edited
+    and exported segment by segment.
+  * This is an optional external dependency; the built-in renderer remains
+    available out of the box.
 """
 
 ABOUT_ZH = (

@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import formats, pgs, render, vobsub
+from . import formats, pgs, render, vsrender, vobsub
 
 
 def parse_index_list(text: str, total: int) -> set[int]:
@@ -56,7 +56,33 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--dump', default=None, help='把每段预览 PNG 输出到目录')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--verify', action='store_true')
+    ap.add_argument('--vsrender', action='store_true',
+                    help='用 easyavs2bdnxml + VSFilterMod 渲染 ASS 到 SUP（需要外部组件）')
+    ap.add_argument('--avs2bdnxml', default=None, help='avs2bdnxml.exe 路径')
+    ap.add_argument('--vsfilter', default=None, help='VSFilterMod.dll 路径')
     args = ap.parse_args(argv)
+
+    if args.vsrender:
+        p = Path(args.input)
+        if p.suffix.lower() not in ('.ass', '.ssa'):
+            raise SystemExit('--vsrender 只支持 ASS/SSA 输入')
+        comp = vsrender.detect_components()
+        avs = args.avs2bdnxml or comp.get('avs2bdnxml')
+        vf = args.vsfilter or comp.get('vsfilter')
+        if not avs or not vf:
+            raise SystemExit('未找到 avs2bdnxml.exe / VSFilterMod.dll，请用 --avs2bdnxml/--vsfilter 指定')
+        out = Path(args.out) if args.out else p.with_suffix('.vs.sup')
+        last = [-1]
+        def progress(done: int, total: int) -> None:
+            pct = int(done * 100 / max(1, total))
+            if pct != last[0]:
+                last[0] = pct
+                print(f'\r高级渲染 {done}/{total} ({pct}%)', end='', flush=True)
+        print(f'高级渲染: {p} -> {out}')
+        result = vsrender.render_ass(str(p), str(out), avs, vf, fps=args.fps,
+                                     progress=progress)
+        print(f'\n完成: {result["entries"]} 段, 画布 {result["size"]}, {out}')
+        return 0
 
     v = formats.open_subtitle(args.input)
     track = args.track
